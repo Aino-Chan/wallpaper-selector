@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 cd "$(dirname "$0")"
 
+WAL_CMD=""
+VENV_BIN=""  
+[[ -n "$VENV_BIN" ]] && export PATH="$VENV_BIN:$PATH"
+
 WALLPAPER_IMAGE="$1"
 if [[ -z "$WALLPAPER_IMAGE" || ! -f "$WALLPAPER_IMAGE" ]]; then
     echo "Usage: $0 <wallpaper_image>"
@@ -10,7 +14,7 @@ fi
 
 echo "$WALLPAPER_IMAGE" > ~/.cache/quickshell-last-wallpaper
 
-wal -i "$WALLPAPER_IMAGE" >/dev/null 2>&1
+[[ -n "$WAL_CMD" ]] && "$WAL_CMD" -i "$WALLPAPER_IMAGE" -n -q 2>/dev/null || true
 
 MONITORS=()
 if command -v hyprctl >/dev/null 2>&1; then

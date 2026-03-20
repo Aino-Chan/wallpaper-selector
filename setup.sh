@@ -35,12 +35,12 @@ else
     warn "wl-clipboard not found — :id command won't work"
 fi
 
-if command -v wal &>/dev/null; then
-    info "pywal found (system)"
-    WAL_CMD="wal"
-elif [[ -f "$HOME/.local/venvs/pywal/bin/wal" ]]; then
+if [[ -f "$HOME/.local/venvs/pywal/bin/wal" ]]; then
     info "pywal found (venv at ~/.local/venvs/pywal)"
     WAL_CMD="$HOME/.local/venvs/pywal/bin/wal"
+elif command -v wal &>/dev/null; then
+    info "pywal found (system)"
+    WAL_CMD="wal"
 else
     warn "pywal not found — color scheme generation will be skipped"
     WAL_CMD=""
@@ -76,7 +76,7 @@ read -rp "FPS: " WALLPAPER_FPS
 WALLPAPER_FPS="${WALLPAPER_FPS:-60}"
 
 
-heading "Installing wallpaper picker..."
+heading "Installing wallpaper selector..."
 
 mkdir -p "$CONFIG_DIR"
 cp -r "$SCRIPT_DIR/qml/"* "$CONFIG_DIR/"
@@ -91,9 +91,11 @@ cp "$SCRIPT_DIR/scripts/wallpaper-apply.sh" "$BIN_DIR/wallpaper-apply.sh"
 sed -i "s|WALLPAPER_ENGINE_BIN=.*|WALLPAPER_ENGINE_BIN=\"$ENGINE_PATH\"|" "$BIN_DIR/wallpaper-apply.sh"
 sed -i "s|WALLPAPER_FPS=.*|WALLPAPER_FPS=$WALLPAPER_FPS|" "$BIN_DIR/wallpaper-apply.sh"
 sed -i "s|WAL_CMD=.*|WAL_CMD=\"$WAL_CMD\"|" "$BIN_DIR/wallpaper-apply.sh"
+sed -i "s|VENV_BIN=.*|VENV_BIN=\"$VENV_BIN\"|" "$BIN_DIR/wallpaper-apply.sh"
 
 cp "$SCRIPT_DIR/scripts/wallpaper-apply-static.sh" "$BIN_DIR/wallpaper-apply-static.sh"
 sed -i "s|WAL_CMD=.*|WAL_CMD=\"$WAL_CMD\"|" "$BIN_DIR/wallpaper-apply-static.sh"
+    sed -i "s|VENV_BIN=.*|VENV_BIN=\"$VENV_BIN\"|" "$BIN_DIR/wallpaper-apply-static.sh"
 
 cp "$SCRIPT_DIR/scripts/wallpaper-startup.sh" "$BIN_DIR/wallpaper-startup.sh"
 sed -i "s|WALLPAPER_ENGINE_BIN=.*|WALLPAPER_ENGINE_BIN=\"$ENGINE_PATH\"|" "$BIN_DIR/wallpaper-startup.sh"
@@ -143,6 +145,35 @@ chmod +x \
     "$BIN_DIR/wallpaper-selector.sh"
 
 info "Scripts installed to $BIN_DIR"
+
+heading "Pywal theme integration..."
+
+if [[ -n "$WAL_CMD" ]]; then
+    WAL_TEMPLATES_DIR="$HOME/.config/wal/templates"
+    mkdir -p "$WAL_TEMPLATES_DIR"
+
+    cat > "$WAL_TEMPLATES_DIR/Theme.qml" << 'TEMPLATE'
+    pragma Singleton
+    import QtQuick
+    QtObject {{
+        property color background: "#B2{color0.strip}"
+        property color background90: "#E6{color0.strip}"
+        property color border: "{color12}"
+        property color accent: "#B2{color1.strip}"
+        property color text: "{foreground}"
+    }}
+TEMPLATE
+
+    info "Wal template installed to $WAL_TEMPLATES_DIR/Theme.qml"
+
+    ln -sf "$HOME/.cache/wal/Theme.qml" "$CONFIG_DIR/Theme.qml"
+    info "Symlinked ~/.cache/wal/Theme.qml → $CONFIG_DIR/Theme.qml"
+
+    info "Running wal to generate initial theme..."
+    $WAL_CMD -R -n -q 2>/dev/null || true
+else
+    info "Skipping pywal integration — pywal not found"
+fi
 
 
 heading "Installation complete!"

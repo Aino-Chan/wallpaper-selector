@@ -4,6 +4,9 @@ cd "$(dirname "$0")"
 WALLPAPER_ENGINE_BIN="$HOME/linux-wallpaperengine/build/output/linux-wallpaperengine"
 WALLPAPER_FPS=60
 SCREENSHOT_DIR="$HOME/.cache/wallpaper-screenshots"
+WAL_CMD=""
+VENV_BIN="" 
+[[ -n "$VENV_BIN" ]] && export PATH="$VENV_BIN:$PATH"
 
 mkdir -p "$SCREENSHOT_DIR"
 
@@ -28,6 +31,7 @@ find_preview_image() {
     return 1
 }
 
+[[ -n "$WAL_CMD" ]] && "$WAL_CMD" -i "$WALLPAPER_IMAGE" -n -q 2>/dev/null || true
 
 MONITORS=()
 if command -v hyprctl >/dev/null 2>&1; then
