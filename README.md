@@ -1,5 +1,7 @@
 Yet another wallpaper selector made with quickshell.
-Inspired by https://github.com/liixini/skwd
+Inspired by these 
+https://github.com/ilyamiro/nixos-configuration
+https://github.com/liixini/skwd
 
 Pretty beta at the moment expect bugs...
 
