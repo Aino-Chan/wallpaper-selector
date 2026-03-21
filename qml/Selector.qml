@@ -2047,7 +2047,7 @@ Scope {
                                     { cmd: ":random          |  :r",   desc: "Apply a random dynamic wallpaper" },
                                     { cmd: ":randomstatic    |  :rs",  desc: "Apply a random static wallpaper" },
                                     { cmd: ":randomfav       |  :rf",  desc: "Apply a random favorited wallpaper" },
-                                    { cmd: ":export <filter> |  :ex", desc: "Export filtered wallpaper URLs to export.txt" },
+                                    { cmd: ":export <filter> |  :ex",  desc: "Export filtered wallpaper as steam URLs" },
                                     { cmd: ":setfolder       |  :sf",  desc: "Set dynamic wallpapers folder" },
                                     { cmd: ":setstatic       |  :ss",  desc: "Set static wallpapers folder" },
                                     { cmd: ":setthumb        |  :st",  desc: "Set thumbnail cache folder" },
