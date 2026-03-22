@@ -13,11 +13,10 @@ import Quickshell.Widgets
 import Quickshell.Wayland
 import QtMultimedia
 
-
 Scope {
     Variants {
         model: Quickshell.screens
-        
+
         PanelWindow {
             id: window
             required property var modelData
@@ -30,24 +29,20 @@ Scope {
             MouseArea {
                 anchors.fill: parent
 
-                onClicked: (mouse) => {
-                    var p = panel.mapFromItem(this, mouse.x, mouse.y)
+                onClicked: mouse => {
+                    var p = panel.mapFromItem(this, mouse.x, mouse.y);
 
                     if (p.x < 0 || p.y < 0 || p.x > panel.width || p.y > panel.height) {
-                        Qt.quit()
+                        Qt.quit();
                     }
                 }
             }
 
-            property string defaultBaseFolder: 
-                StandardPaths.writableLocation(StandardPaths.HomeLocation) + 
-                "/.local/share/Steam/steamapps/workshop/content/431960/"
+            property string defaultBaseFolder: StandardPaths.writableLocation(StandardPaths.HomeLocation) + "/.local/share/Steam/steamapps/workshop/content/431960/"
 
             property string defaultStaticWallpaperFolder: StandardPaths.writableLocation(StandardPaths.PicturesLocation)
 
-            property string defaultThumbFolder:
-                String(StandardPaths.writableLocation(StandardPaths.HomeLocation)).replace(/^file:\/\//, "") +
-                "/.cache/quickshell-wallpaper-thumbs"
+            property string defaultThumbFolder: String(StandardPaths.writableLocation(StandardPaths.HomeLocation)).replace(/^file:\/\//, "") + "/.cache/quickshell-wallpaper-thumbs"
 
             property string baseFolder: defaultBaseFolder
             property string staticWallpaperFolder: defaultStaticWallpaperFolder
@@ -93,21 +88,19 @@ Scope {
             property var renamedTitles: ({})
             property string pendingScrollPath: ""
 
-            
             FileView {
                 id: pathCompleteFileView
                 blockLoading: true
                 onLoaded: {
-                    let lines = text().trim().split("\n").filter(l => l.length > 0)
+                    let lines = text().trim().split("\n").filter(l => l.length > 0);
                     Qt.callLater(() => {
-                        window.suggestions = []
-                        window.suggestions = lines
-                        window.suggestionIndex = lines.length > 0 ? 0 : -1
-                    })
+                        window.suggestions = [];
+                        window.suggestions = lines;
+                        window.suggestionIndex = lines.length > 0 ? 0 : -1;
+                    });
                 }
             }
 
-            
             Process {
                 id: pathCompleteProcess
             }
@@ -117,9 +110,9 @@ Scope {
                 interval: 150
                 repeat: false
                 onTriggered: {
-                    pathCompleteFileView.path = ""
-                    pathCompleteFileView.path = "file:///tmp/qs-path-complete.txt"
-                    pathCompleteFileView.reload()
+                    pathCompleteFileView.path = "";
+                    pathCompleteFileView.path = "file:///tmp/qs-path-complete.txt";
+                    pathCompleteFileView.reload();
                 }
             }
 
@@ -128,7 +121,7 @@ Scope {
             }
             Process {
                 id: thumbProcess
-                onExited:window.drainThumbQueue()
+                onExited: window.drainThumbQueue()
             }
 
             Process {
@@ -143,24 +136,24 @@ Scope {
 
             Process {
                 id: initSettingsProcess
-                
             }
 
             Process {
                 id: playlistDaemon
                 Component.onCompleted: {
-                    let home = stripFileScheme(StandardPaths.writableLocation(StandardPaths.HomeLocation))
-                    command = ["/bin/bash", "-c", 
-                        `pgrep -fx 'bash.*wallpaper-playlist.sh' > /dev/null || { nohup ${home}/.local/bin/wallpaper-playlist.sh > /dev/null 2>&1 & disown; }`]
-                    startDetached()
+                    let home = stripFileScheme(StandardPaths.writableLocation(StandardPaths.HomeLocation));
+                    command = ["/bin/bash", "-c", `pgrep -fx 'bash.*wallpaper-playlist.sh' > /dev/null || { nohup ${home}/.local/bin/wallpaper-playlist.sh > /dev/null 2>&1 & disown; }`];
+                    startDetached();
                 }
             }
 
-            ListModel { id: masterModel }
-            
+            ListModel {
+                id: masterModel
+            }
+
             FileView {
                 id: sharedFileView
-                
+
                 property var loadCallback: null
                 onLoaded: {
                     if (loadCallback) {
@@ -184,220 +177,208 @@ Scope {
             }
 
             SequentialAnimation {
-                    id: filterAnimation
+                id: filterAnimation
 
-                    NumberAnimation {
-                        target: listView
-                        property: "opacity"
-                        to: 0
-                        duration: 240
-                        easing.type: Easing.BezierSpline
-                        easing.bezierCurve: [0.5, 0.5, 0.75, 1.0, 1, 1]
+                NumberAnimation {
+                    target: listView
+                    property: "opacity"
+                    to: 0
+                    duration: 240
+                    easing.type: Easing.BezierSpline
+                    easing.bezierCurve: [0.5, 0.5, 0.75, 1.0, 1, 1]
+                }
+
+                ScriptAction {
+                    script: {
+                        listView.interactive = false;
+                        filterWallpapers();
                     }
+                }
 
-                    ScriptAction {
-                        script: {
-                            listView.interactive = false
-                            filterWallpapers()
-                        }
-                    }
+                NumberAnimation {
+                    target: listView
+                    property: "opacity"
+                    to: 1
+                    duration: 240
+                    easing.type: Easing.BezierSpline
+                    easing.bezierCurve: [0.5, 0.5, 0.75, 1.0, 1, 1]
+                }
 
-                    NumberAnimation {
-                        target: listView
-                        property: "opacity"
-                        to: 1
-                        duration: 240
-                        easing.type: Easing.BezierSpline
-                        easing.bezierCurve: [0.5, 0.5, 0.75, 1.0, 1, 1]
-                    }
-
-                    ScriptAction {
-                        script: {
-                            listView.interactive = true
-                            if (window.pendingScrollPath !== "") {
-                                let target = window.pendingScrollPath
-                                window.pendingScrollPath = ""
-                                for (let i = 0; i < filteredModel.count; i++) {
-                                    if (stripFileScheme(filteredModel.get(i).folder).replace(/\/$/, "") === target) {
-                                        listView.currentIndex = i
-                                        Qt.callLater(() => listView.positionViewAtIndex(i, ListView.Center))
-                                        break
-                                    }
+                ScriptAction {
+                    script: {
+                        listView.interactive = true;
+                        if (window.pendingScrollPath !== "") {
+                            let target = window.pendingScrollPath;
+                            window.pendingScrollPath = "";
+                            for (let i = 0; i < filteredModel.count; i++) {
+                                if (stripFileScheme(filteredModel.get(i).folder).replace(/\/$/, "") === target) {
+                                    listView.currentIndex = i;
+                                    Qt.callLater(() => listView.positionViewAtIndex(i, ListView.Center));
+                                    break;
                                 }
                             }
                         }
                     }
                 }
-
+            }
 
             function updateSuggestions(input) {
-                let raw = input.trim()
-                let lower = raw.toLowerCase()
-                suggestions = []
-                suggestionIndex = -1
+                let raw = input.trim();
+                let lower = raw.toLowerCase();
+                suggestions = [];
+                suggestionIndex = -1;
 
-                if (raw === "") return
+                if (raw === "")
+                    return;
                 if (lower.startsWith(":tag")) {
-                    let partial = lower.replace(":tag", "").trim()
-                    let allTags = getUniqueTags()
-                    suggestions = allTags
-                        .filter(t => t.startsWith(partial) && t !== partial)
-                        .map(t => ":tag " + t)
-                    suggestionIndex = suggestions.length > 0 ? 0 : -1
-                    hoverItem = ""
-                    return
+                    let partial = lower.replace(":tag", "").trim();
+                    let allTags = getUniqueTags();
+                    suggestions = allTags.filter(t => t.startsWith(partial) && t !== partial).map(t => ":tag " + t);
+                    suggestionIndex = suggestions.length > 0 ? 0 : -1;
+                    hoverItem = "";
+                    return;
                 }
 
                 if (raw.startsWith(":") && !raw.includes(" ")) {
-                    let matureSuggestion = ":" + toggleMatureContentKey
-                    let commands = [
-                        ":static", ":dynamic", ":favorite", matureSuggestion, ":gif", ":rename",
-                        ":playlist", ":playlistshuffle", ":playlist clear",
-                        ":random", ":randomstatic", ":randomfav", ":export",
-                        ":setfolder", ":setstatic", ":setthumb", ":setffmpeg",
-                        ":clearcache", ":reload", ":tag", ":id", ":open",
-                        ":sort default", ":sort name", ":sort recent", ":sort favorite", ":sort random",
-                        ":help"
-                    ]
-                    suggestions = commands.filter(c => c.startsWith(lower) && c !== lower)
-                    suggestionIndex = suggestions.length > 0 ? 0 : -1
-                    return
+                    let matureSuggestion = ":" + toggleMatureContentKey;
+                    let commands = [":static", ":dynamic", ":favorite", matureSuggestion, ":gif", ":rename", ":playlist", ":playlistshuffle", ":playlist clear", ":random", ":randomstatic", ":randomfav", ":export", ":setfolder", ":setstatic", ":setthumb", ":setffmpeg", ":clearcache", ":reload", ":tag", ":id", ":open", ":sort default", ":sort name", ":sort recent", ":sort favorite", ":sort random", ":help"];
+                    suggestions = commands.filter(c => c.startsWith(lower) && c !== lower);
+                    suggestionIndex = suggestions.length > 0 ? 0 : -1;
+                    return;
                 }
 
-                let pathCommands = [":setfolder ", ":sf ", ":setstatic ", ":ss ", ":setthumb ", ":st ", ":setffmpeg "]
-                let isPathCmd = pathCommands.some(p => lower.startsWith(p))
+                let pathCommands = [":setfolder ", ":sf ", ":setstatic ", ":ss ", ":setthumb ", ":st ", ":setffmpeg "];
+                let isPathCmd = pathCommands.some(p => lower.startsWith(p));
                 if (isPathCmd) {
-                    let spaceIdx = raw.indexOf(" ")
-                    let partial = raw.substring(spaceIdx + 1)
+                    let spaceIdx = raw.indexOf(" ");
+                    let partial = raw.substring(spaceIdx + 1);
                     if (partial.length > 0) {
-                        let escaped = partial.replace(/'/g, "'\\''")
-                        let cmd
-                      if (partial.endsWith("/")) {
-                                cmd = `find '${escaped}' -maxdepth 1 -mindepth 1 -type d 2>/dev/null | sed 's|$|/|' | head -20 > /tmp/qs-path-complete.txt`
-                            } else {
-                                let lastSlash = partial.lastIndexOf("/")
-                                let dir = lastSlash >= 0 ? partial.substring(0, lastSlash + 1) : "/"
-                                let base = lastSlash >= 0 ? partial.substring(lastSlash + 1) : partial
-                                let escapedDir = dir.replace(/'/g, "'\\''")
-                                let escapedBase = base.replace(/'/g, "'\\''")
-                                cmd = `find '${escapedDir}' -maxdepth 1 -mindepth 1 -type d -iname '*${escapedBase}*' 2>/dev/null | sed 's|$|/|' | head -20 > /tmp/qs-path-complete.txt`
-                            }
-                            pathCompleteProcess.command = ["/bin/bash", "-c", cmd]
-                            pathCompleteProcess.startDetached()
-                            pathCompleteTimer.restart()
+                        let escaped = partial.replace(/'/g, "'\\''");
+                        let cmd;
+                        if (partial.endsWith("/")) {
+                            cmd = `find '${escaped}' -maxdepth 1 -mindepth 1 -type d 2>/dev/null | sed 's|$|/|' | head -20 > /tmp/qs-path-complete.txt`;
+                        } else {
+                            let lastSlash = partial.lastIndexOf("/");
+                            let dir = lastSlash >= 0 ? partial.substring(0, lastSlash + 1) : "/";
+                            let base = lastSlash >= 0 ? partial.substring(lastSlash + 1) : partial;
+                            let escapedDir = dir.replace(/'/g, "'\\''");
+                            let escapedBase = base.replace(/'/g, "'\\''");
+                            cmd = `find '${escapedDir}' -maxdepth 1 -mindepth 1 -type d -iname '*${escapedBase}*' 2>/dev/null | sed 's|$|/|' | head -20 > /tmp/qs-path-complete.txt`;
+                        }
+                        pathCompleteProcess.command = ["/bin/bash", "-c", cmd];
+                        pathCompleteProcess.startDetached();
+                        pathCompleteTimer.restart();
                     } else {
-                        window.suggestions = []
+                        window.suggestions = [];
                     }
-                    return
+                    return;
                 }
             }
 
             function acceptSuggestion(accepted) {
-                let raw = searchInput.text.trim()
-                let pathCommands = [":setfolder ", ":sf ", ":setstatic ", ":ss ", ":setthumb ", ":st ", ":setffmpeg "]
-                let matchedCmd = pathCommands.find(p => raw.toLowerCase().startsWith(p))
-                window.suppressTextHandler = true
+                let raw = searchInput.text.trim();
+                let pathCommands = [":setfolder ", ":sf ", ":setstatic ", ":ss ", ":setthumb ", ":st ", ":setffmpeg "];
+                let matchedCmd = pathCommands.find(p => raw.toLowerCase().startsWith(p));
+                window.suppressTextHandler = true;
                 if (matchedCmd) {
-                    let cmdPart = raw.substring(0, raw.indexOf(" ") + 1)
-                    searchInput.text = cmdPart + accepted
-                    window.suppressTextHandler = false
-                    searchInput.cursorPosition = searchInput.text.length
-                    window.suggestions = []
-                    window.suggestionIndex = -1
+                    let cmdPart = raw.substring(0, raw.indexOf(" ") + 1);
+                    searchInput.text = cmdPart + accepted;
+                    window.suppressTextHandler = false;
+                    searchInput.cursorPosition = searchInput.text.length;
+                    window.suggestions = [];
+                    window.suggestionIndex = -1;
                     if (accepted.endsWith("/")) {
-                        Qt.callLater(() => updateSuggestions(searchInput.text))
+                        Qt.callLater(() => updateSuggestions(searchInput.text));
                     }
                 } else {
-                    searchInput.text = accepted
-                    window.suppressTextHandler = false
-                    searchInput.cursorPosition = searchInput.text.length
-                    window.suggestions = []
-                    window.suggestionIndex = -1
-                    filterWallpapersAnimation()
+                    searchInput.text = accepted;
+                    window.suppressTextHandler = false;
+                    searchInput.cursorPosition = searchInput.text.length;
+                    window.suggestions = [];
+                    window.suggestionIndex = -1;
+                    filterWallpapersAnimation();
                 }
             }
 
             function getUniqueTags() {
-                let tags = new Set()
+                let tags = new Set();
                 for (let i = 0; i < masterModel.count; i++) {
-                    let raw = masterModel.get(i).tags
+                    let raw = masterModel.get(i).tags;
                     try {
-                        let arr = JSON.parse(raw || "[]")
-                        arr.forEach(t => tags.add(t))
-                    } catch(e) {}
+                        let arr = JSON.parse(raw || "[]");
+                        arr.forEach(t => tags.add(t));
+                    } catch (e) {}
                 }
-                return Array.from(tags).sort()
+                return Array.from(tags).sort();
             }
 
             function showStatus(msg) {
-                window.statusMessage = msg
-                statusMessageTimer.restart()
+                window.statusMessage = msg;
+                statusMessageTimer.restart();
             }
 
             function stripFileScheme(path) {
-                return String(path).replace(/^file:\/\//, "")
+                return String(path).replace(/^file:\/\//, "");
             }
-    
+
             function getWallpaperInfo(folderPath, callback) {
-                let jsonPath = folderPath + "/project.json"
-                var xhr = new XMLHttpRequest()
-                xhr.open("GET", jsonPath)
-                xhr.onreadystatechange = function() {
+                let jsonPath = folderPath + "/project.json";
+                var xhr = new XMLHttpRequest();
+                xhr.open("GET", jsonPath);
+                xhr.onreadystatechange = function () {
                     if (xhr.readyState === XMLHttpRequest.DONE) {
                         try {
-                            let json = JSON.parse(xhr.responseText)
+                            let json = JSON.parse(xhr.responseText);
                             callback({
                                 title: String(json.title || "Untitled"),
                                 preview: json.preview || json.file || "",
                                 contentrating: json.contentrating || "Everyone",
                                 tags: Array.isArray(json.tags) ? json.tags.map(t => String(t).toLowerCase()) : []
-                            })
-                        } catch(e) {
-                            let cleanPath = stripFileScheme(folderPath)
+                            });
+                        } catch (e) {
+                            let cleanPath = stripFileScheme(folderPath);
                             callback({
                                 title: cleanPath.split("/").pop(),
                                 preview: ""
-                            })
+                            });
                         }
                     }
-                }
-                xhr.send()
+                };
+                xhr.send();
             }
 
             function getCurrentFilteredItem() {
                 if (listView.currentIndex < 0 || listView.currentIndex >= filteredModel.count)
-                    return null
+                    return null;
 
-                return filteredModel.get(listView.currentIndex)
-            } 
+                return filteredModel.get(listView.currentIndex);
+            }
 
             function applyWallpaper(item) {
-                if (!item || !item.folder) return
+                if (!item || !item.folder)
+                    return;
+                var folder = stripFileScheme(item.folder).replace(/\/$/, "");
+                let now = Date.now();
+                window.usageMap[folder] = now;
+                var home = stripFileScheme(StandardPaths.writableLocation(StandardPaths.HomeLocation));
+                var scriptPath = item.isStatic ? home + "/.local/bin/wallpaper-apply-static.sh" : home + "/.local/bin/wallpaper-apply.sh";
 
-                var folder = stripFileScheme(item.folder).replace(/\/$/, "")
-                let now = Date.now()
-                window.usageMap[folder] = now
-                var home = stripFileScheme(StandardPaths.writableLocation(StandardPaths.HomeLocation))
-                var scriptPath = item.isStatic
-                    ? home + "/.local/bin/wallpaper-apply-static.sh"
-                    : home + "/.local/bin/wallpaper-apply.sh"
+                console.log("Applying wallpaper:", folder);
 
-                console.log("Applying wallpaper:", folder)
+                wallpaperProcess.command = ["/bin/bash", scriptPath, folder];
+                wallpaperProcess.startDetached();
 
-                wallpaperProcess.command = [ "/bin/bash", scriptPath, folder ]
-                wallpaperProcess.startDetached()
-
-                window.lastWallpaperPath = folder
-                saveSettings()
+                window.lastWallpaperPath = folder;
+                saveSettings();
             }
 
             function queueThumbnail(filePath) {
                 let clean = stripFileScheme(filePath);
                 let ext = clean.split(".").pop().toLowerCase();
 
-                let hash = Qt.md5(clean)
-                window.validThumbs.add(hash)
-                let thumbPath = window.thumbFolder + "/" + hash + ".jpg"
+                let hash = Qt.md5(clean);
+                window.validThumbs.add(hash);
+                let thumbPath = window.thumbFolder + "/" + hash + ".jpg";
 
                 let cmd = `
                     mkdir -p "${window.thumbFolder}" &&
@@ -422,14 +403,16 @@ Scope {
             }
 
             function drainThumbQueue() {
-                if (thumbQueue.length === 0 || thumbProcess.running) return
-                thumbProcess.command = ["/bin/bash", "-c", thumbQueue.shift()]
-                thumbProcess.startDetached()
+                if (thumbQueue.length === 0 || thumbProcess.running)
+                    return;
+                thumbProcess.command = ["/bin/bash", "-c", thumbQueue.shift()];
+                thumbProcess.startDetached();
             }
 
             function cleanupThumbnails(validSet) {
-                if (validSet.size === 0) return
-                let hashes = Array.from(validSet).join("|")
+                if (validSet.size === 0)
+                    return;
+                let hashes = Array.from(validSet).join("|");
 
                 let cmd = `
                     shopt -s nullglob
@@ -439,73 +422,74 @@ Scope {
                             rm "$file"
                         fi
                     done
-                `
+                `;
 
-                thumbQueue.push(cmd)
-                drainThumbQueue()
+                thumbQueue.push(cmd);
+                drainThumbQueue();
             }
 
             function loadSettings(callback) {
-                let settingsPath =  Qt.resolvedUrl("settings.json");
+                let settingsPath = Qt.resolvedUrl("settings.json");
 
-                sharedFileView.loadCallback = function(data) {
+                sharedFileView.loadCallback = function (data) {
                     try {
                         let json = JSON.parse(data.trim());
-                        window.showMatureContent = !!json.showMatureContent
-                        window.toggleMatureContentKey = json.toggleMatureContentKey || "sus"
+                        window.showMatureContent = !!json.showMatureContent;
+                        window.toggleMatureContentKey = json.toggleMatureContentKey || "sus";
                         if (!window.toggleMatureContentKey || window.toggleMatureContentKey.trim() === "")
-                        window.toggleMatureContentKey = "sus"
-                        window.playlist = json.playlist || []
-                        window.playlistInterval = json.playlistInterval || 30
-                        window.playlistActive = !!json.playlistActive
-                        window.playlistShuffle = !!json.playlistShuffle
-                        window.showPlaylist = !!json.showPlaylist
-                        window.playlistLastApplied = json.playlistLastApplied || 0
-                        window.enableGifPreview = json.enableGifPreview !== false
-                        window.sortMode = json.sortMode || "default"
-                        window.sortDescending = !!json.sortDescending
-                        window.showStatic = !!json.showStatic
-                        window.showDynamic = !!json.showDynamic
-                        window.showFavorite = !!json.showFavorite
-                        window.lastWallpaperPath = json.lastWallpaper || ""
-                        window.baseFolder =  json.baseFolder || window.defaultBaseFolder
-                        window.staticWallpaperFolder = json.staticWallpaperFolder || window.defaultStaticWallpaperFolder
-                        window.thumbFolder = json.thumbFolder || window.defaultThumbFolder
-                        window.ffmpegPath = json.ffmpegPath || "/usr/bin/ffmpeg"
-                        window.filterTag = json.filterTag || ""
-                        window.renamedTitles = json.renamedTitles || {}
-                        window.favorites = json.favorites || []
-                        window.usageMap = json.usageMap || {}
-                    } catch(e) {
-                        console.warn("Failed to parse settings:", e)
-                        window.showMatureContent = false
-                        window.favorites = []
-                        window.playlist = []
-                        window.playlistActive = false
-                        window.playlistShuffle = false
-                        window.showPlaylist = false
-                        window.playlistInterval = 30
-                        window.playlistLastApplied = 0
-                        window.renamedTitles = ({})
-                        window.usageMap = ({})
-                        window.toggleMatureContentKey = "sus"
-                        window.enableGifPreview = true
-                        window.sortMode = "default"
-                        window.sortDescending = false
-                        window.filterTag = ""
-                        window.baseFolder = window.defaultBaseFolder
-                        window.staticWallpaperFolder = window.defaultStaticWallpaperFolder
-                        window.thumbFolder = window.defaultThumbFolder
-                        window.ffmpegPath = "/usr/bin/ffmpeg"
+                            window.toggleMatureContentKey = "sus";
+                        window.playlist = json.playlist || [];
+                        window.playlistInterval = json.playlistInterval || 30;
+                        window.playlistActive = !!json.playlistActive;
+                        window.playlistShuffle = !!json.playlistShuffle;
+                        window.showPlaylist = !!json.showPlaylist;
+                        window.playlistLastApplied = json.playlistLastApplied || 0;
+                        window.enableGifPreview = json.enableGifPreview !== false;
+                        window.sortMode = json.sortMode || "default";
+                        window.sortDescending = !!json.sortDescending;
+                        window.showStatic = !!json.showStatic;
+                        window.showDynamic = !!json.showDynamic;
+                        window.showFavorite = !!json.showFavorite;
+                        window.lastWallpaperPath = json.lastWallpaper || "";
+                        window.baseFolder = json.baseFolder || window.defaultBaseFolder;
+                        window.staticWallpaperFolder = json.staticWallpaperFolder || window.defaultStaticWallpaperFolder;
+                        window.thumbFolder = json.thumbFolder || window.defaultThumbFolder;
+                        window.ffmpegPath = json.ffmpegPath || "/usr/bin/ffmpeg";
+                        window.filterTag = json.filterTag || "";
+                        window.renamedTitles = json.renamedTitles || {};
+                        window.favorites = json.favorites || [];
+                        window.usageMap = json.usageMap || {};
+                    } catch (e) {
+                        console.warn("Failed to parse settings:", e);
+                        window.showMatureContent = false;
+                        window.favorites = [];
+                        window.playlist = [];
+                        window.playlistActive = false;
+                        window.playlistShuffle = false;
+                        window.showPlaylist = false;
+                        window.playlistInterval = 30;
+                        window.playlistLastApplied = 0;
+                        window.renamedTitles = ({});
+                        window.usageMap = ({});
+                        window.toggleMatureContentKey = "sus";
+                        window.enableGifPreview = true;
+                        window.sortMode = "default";
+                        window.sortDescending = false;
+                        window.filterTag = "";
+                        window.baseFolder = window.defaultBaseFolder;
+                        window.staticWallpaperFolder = window.defaultStaticWallpaperFolder;
+                        window.thumbFolder = window.defaultThumbFolder;
+                        window.ffmpegPath = "/usr/bin/ffmpeg";
                     }
-                    if (callback) callback();
+                    if (callback)
+                        callback();
                 };
 
                 sharedFileView.path = settingsPath;
             }
 
             function saveSettings() {
-                let settingsPath = stripFileScheme(Qt.resolvedUrl("settings.json"))
+                let settingsPath = stripFileScheme(Qt.resolvedUrl("settings.json"));
 
                 let jsonStr = JSON.stringify({
                     showMatureContent: window.showMatureContent,
@@ -531,497 +515,498 @@ Scope {
                     renamedTitles: window.renamedTitles,
                     favorites: window.favorites,
                     usageMap: window.usageMap
-                })
+                });
 
-                let escaped = jsonStr.replace(/'/g, "'\\''")
-                writeProcess.command = ["/bin/bash", "-c", `echo '${escaped}' > "${settingsPath}"`]
-                writeProcess.startDetached()
+                let escaped = jsonStr.replace(/'/g, "'\\''");
+                writeProcess.command = ["/bin/bash", "-c", `echo '${escaped}' > "${settingsPath}"`];
+                writeProcess.startDetached();
             }
 
             function reloadWallpapers() {
-                masterModel.clear()
-                filteredModel.clear()
-                window.validThumbs.clear()
-                window.thumbQueue = []
-                scanWallpapers()
+                masterModel.clear();
+                filteredModel.clear();
+                window.validThumbs.clear();
+                window.thumbQueue = [];
+                scanWallpapers();
             }
 
             function getFilteredCandidates() {
-                let candidates = []
+                let candidates = [];
                 for (let i = 0; i < masterModel.count; i++) {
-                    let item = masterModel.get(i)
-                    let allowedContent = window.showMatureContent || 
-                        (item.contentrating !== "Mature" && item.contentrating !== "Questionable")
-                    let matchesFavorite = !window.showFavorite || item.isFavorite
-                    let matchesStatic = !window.showStatic || item.isStatic
-                    let matchesDynamic = !window.showDynamic || !item.isStatic
-                    let itemTags = []
-                    try { itemTags = JSON.parse(item.tags || "[]") } catch(e) {}
-                    let matchesTag = window.filterTag === "" || itemTags.some(t => t === window.filterTag.toLowerCase())
-                    let matchesPlaylist = !window.showPlaylist || window.playlist.indexOf(stripFileScheme(item.folder).replace(/\/$/, "")) !== -1
+                    let item = masterModel.get(i);
+                    let allowedContent = window.showMatureContent || (item.contentrating !== "Mature" && item.contentrating !== "Questionable");
+                    let matchesFavorite = !window.showFavorite || item.isFavorite;
+                    let matchesStatic = !window.showStatic || item.isStatic;
+                    let matchesDynamic = !window.showDynamic || !item.isStatic;
+                    let itemTags = [];
+                    try {
+                        itemTags = JSON.parse(item.tags || "[]");
+                    } catch (e) {}
+                    let matchesTag = window.filterTag === "" || itemTags.some(t => t === window.filterTag.toLowerCase());
+                    let matchesPlaylist = !window.showPlaylist || window.playlist.indexOf(stripFileScheme(item.folder).replace(/\/$/, "")) !== -1;
                     if (allowedContent && matchesFavorite && matchesStatic && matchesDynamic && matchesTag && matchesPlaylist)
-                        candidates.push(item)
+                        candidates.push(item);
                 }
-                return candidates
+                return candidates;
             }
 
             Shortcut {
                 sequences: ["Return", "Enter"]
                 onActivated: {
-                    window.suggestions = []
-                    window.suggestionIndex = -1
+                    window.suggestions = [];
+                    window.suggestionIndex = -1;
                     if (window.showHelp) {
-                        window.showHelp = false
-                        return
+                        window.showHelp = false;
+                        return;
                     }
-                    let rawCmd = searchInput.text.trim()
-                    let cmd = rawCmd.toLowerCase()
-                    let expectedPrefix = ":"
-                    let matureCmd = expectedPrefix + window.toggleMatureContentKey.toLowerCase()
+                    let rawCmd = searchInput.text.trim();
+                    let cmd = rawCmd.toLowerCase();
+                    let expectedPrefix = ":";
+                    let matureCmd = expectedPrefix + window.toggleMatureContentKey.toLowerCase();
 
                     if (cmd === ":help" || cmd === ":h") {
-                        window.showHelp = true
-                        filterWallpapersAnimation()
-                        window.suppressTextHandler = true
-                        searchInput.text = ""
-                        window.suppressTextHandler = false
-                        searchDebounceTimer.stop()
-                        listView.forceActiveFocus()
-                        return
+                        window.showHelp = true;
+                        filterWallpapersAnimation();
+                        window.suppressTextHandler = true;
+                        searchInput.text = "";
+                        window.suppressTextHandler = false;
+                        searchDebounceTimer.stop();
+                        listView.forceActiveFocus();
+                        return;
                     }
 
                     if (cmd.startsWith(":setffmpeg ")) {
-                        let newPath = rawCmd.replace(/^:setffmpeg\s+/i, "").trim()
+                        let newPath = rawCmd.replace(/^:setffmpeg\s+/i, "").trim();
                         if (newPath !== "") {
-                            window.ffmpegPath = newPath
-                            saveSettings()
-                            filterWallpapersAnimation()
-                            showStatus("Set ffmpeg path as: " + newPath)
-
+                            window.ffmpegPath = newPath;
+                            saveSettings();
+                            filterWallpapersAnimation();
+                            showStatus("Set ffmpeg path as: " + newPath);
                         }
-                        searchInput.text = ""
-                        listView.forceActiveFocus()
-                        return
+                        searchInput.text = "";
+                        listView.forceActiveFocus();
+                        return;
                     }
 
                     if (cmd.startsWith(":rename") || cmd.startsWith(":rn")) {
-                        let item = window.preCommandPath !== "" 
-                            ? window.preCommandPath 
-                            : (getCurrentFilteredItem() ? stripFileScheme(getCurrentFilteredItem().folder).replace(/\/$/, "") : "")
+                        let item = window.preCommandPath !== "" ? window.preCommandPath : (getCurrentFilteredItem() ? stripFileScheme(getCurrentFilteredItem().folder).replace(/\/$/, "") : "");
                         if (item !== "") {
-                            let newName = rawCmd.replace(/^:(rename|rn)\s*/i, "").trim()
+                            let newName = rawCmd.replace(/^:(rename|rn)\s*/i, "").trim();
                             if (newName === "") {
-                                delete window.renamedTitles[item]
-                                window.renamedTitles = Object.assign({}, window.renamedTitles)
+                                delete window.renamedTitles[item];
+                                window.renamedTitles = Object.assign({}, window.renamedTitles);
                             } else {
-                                window.renamedTitles[item] = newName
-                                window.renamedTitles = Object.assign({}, window.renamedTitles)
+                                window.renamedTitles[item] = newName;
+                                window.renamedTitles = Object.assign({}, window.renamedTitles);
                             }
                             for (let i = 0; i < masterModel.count; i++) {
-                                let mItem = masterModel.get(i)
+                                let mItem = masterModel.get(i);
                                 if (stripFileScheme(mItem.folder).replace(/\/$/, "") === item) {
                                     if (newName === "") {
-                                        masterModel.setProperty(i, "title", mItem.originalTitle || item.split("/").pop())
+                                        masterModel.setProperty(i, "title", mItem.originalTitle || item.split("/").pop());
                                     } else {
-                                        masterModel.setProperty(i, "title", newName)
+                                        masterModel.setProperty(i, "title", newName);
                                     }
-                                    break
+                                    break;
                                 }
                             }
-                            saveSettings()
-                            filterWallpapersAnimation()
-                            showStatus(newName === "" ? "Name cleared" : "Renamed to: " + newName)
+                            saveSettings();
+                            filterWallpapersAnimation();
+                            showStatus(newName === "" ? "Name cleared" : "Renamed to: " + newName);
                         }
-                        window.suppressTextHandler = true
-                        searchInput.text = ""
-                        window.suppressTextHandler = false
-                        listView.forceActiveFocus()
-                        return
+                        window.suppressTextHandler = true;
+                        searchInput.text = "";
+                        window.suppressTextHandler = false;
+                        listView.forceActiveFocus();
+                        return;
                     }
 
                     if (cmd === ":playlistshuffle" || cmd === ":pls") {
-                        window.playlistShuffle = !window.playlistShuffle
-                        saveSettings()
-                        filterWallpapersAnimation()
-                        showStatus(window.playlistShuffle ? "Playlist shuffle on" : "Playlist shuffle off")
-                        window.suppressTextHandler = true
-                        searchInput.text = ""
-                        window.suppressTextHandler = false
-                        listView.forceActiveFocus()
-                        return
+                        window.playlistShuffle = !window.playlistShuffle;
+                        saveSettings();
+                        filterWallpapersAnimation();
+                        showStatus(window.playlistShuffle ? "Playlist shuffle on" : "Playlist shuffle off");
+                        window.suppressTextHandler = true;
+                        searchInput.text = "";
+                        window.suppressTextHandler = false;
+                        listView.forceActiveFocus();
+                        return;
                     }
                     if (cmd === ":playlist" || cmd === ":pl") {
-                        window.showPlaylist = !window.showPlaylist
-                        saveSettings()
-                        filterWallpapersAnimation()
-                        window.suppressTextHandler = true
-                        searchInput.text = ""
-                        window.suppressTextHandler = false
-                        listView.forceActiveFocus()
-                        return
+                        window.showPlaylist = !window.showPlaylist;
+                        saveSettings();
+                        filterWallpapersAnimation();
+                        window.suppressTextHandler = true;
+                        searchInput.text = "";
+                        window.suppressTextHandler = false;
+                        listView.forceActiveFocus();
+                        return;
                     }
 
                     if (cmd === ":playlist clear" || cmd === ":playlist c" || cmd === ":pl clear" || cmd === ":pl c") {
-                        window.playlist = []
-                        window.playlistActive = false
-                        window.showPlaylist = false
-                        saveSettings()
-                        showStatus("Playlist cleared")
-                        filterWallpapersAnimation()
-                        window.suppressTextHandler = true
-                        searchInput.text = ""
-                        window.suppressTextHandler = false
-                        listView.forceActiveFocus()
-                        return
+                        window.playlist = [];
+                        window.playlistActive = false;
+                        window.showPlaylist = false;
+                        saveSettings();
+                        showStatus("Playlist cleared");
+                        filterWallpapersAnimation();
+                        window.suppressTextHandler = true;
+                        searchInput.text = "";
+                        window.suppressTextHandler = false;
+                        listView.forceActiveFocus();
+                        return;
                     }
 
                     if (cmd.startsWith(":playlist ")) {
-                        let mins = parseInt(rawCmd.replace(/^:playlist\s+/i, "").trim())
+                        let mins = parseInt(rawCmd.replace(/^:playlist\s+/i, "").trim());
                         if (!isNaN(mins) && mins > 0) {
-                            window.playlistInterval = mins
-                            saveSettings()
-                            filterWallpapersAnimation()
-                            showStatus("Playlist interval set to " + mins + " minutes")
+                            window.playlistInterval = mins;
+                            saveSettings();
+                            filterWallpapersAnimation();
+                            showStatus("Playlist interval set to " + mins + " minutes");
                         }
-                        window.suppressTextHandler = true
-                        searchInput.text = ""
-                        window.suppressTextHandler = false
-                        listView.forceActiveFocus()
-                        return
+                        window.suppressTextHandler = true;
+                        searchInput.text = "";
+                        window.suppressTextHandler = false;
+                        listView.forceActiveFocus();
+                        return;
                     }
 
                     if (cmd === matureCmd) {
-                        window.isMatureContentTriggered = true
-                        window.showMatureContent = !window.showMatureContent
-                        saveSettings()
-                        filterWallpapersAnimation()
-                        window.suppressTextHandler = true
-                        searchInput.text = ""
-                        window.suppressTextHandler = false
-                        searchDebounceTimer.stop()
-                        listView.forceActiveFocus()
-                        return
-                    } 
+                        window.isMatureContentTriggered = true;
+                        window.showMatureContent = !window.showMatureContent;
+                        saveSettings();
+                        filterWallpapersAnimation();
+                        window.suppressTextHandler = true;
+                        searchInput.text = "";
+                        window.suppressTextHandler = false;
+                        searchDebounceTimer.stop();
+                        listView.forceActiveFocus();
+                        return;
+                    }
 
-                    if (cmd === ":static" || cmd === ":s" ) {
-                        window.showStatic = !window.showStatic
-                        if (window.showStatic) window.showDynamic = false 
-                        saveSettings()
-                        filterWallpapersAnimation()
-                        window.suppressTextHandler = true
-                        searchInput.text = ""
-                        window.suppressTextHandler = false
-                        searchDebounceTimer.stop()
-                        listView.forceActiveFocus()
-                        return
+                    if (cmd === ":static" || cmd === ":s") {
+                        window.showStatic = !window.showStatic;
+                        if (window.showStatic)
+                            window.showDynamic = false;
+                        saveSettings();
+                        filterWallpapersAnimation();
+                        window.suppressTextHandler = true;
+                        searchInput.text = "";
+                        window.suppressTextHandler = false;
+                        searchDebounceTimer.stop();
+                        listView.forceActiveFocus();
+                        return;
                     }
 
                     if (cmd === ":dynamic" || cmd === ":d") {
-                        window.showDynamic = !window.showDynamic
-                        if (window.showDynamic) window.showStatic = false
-                        saveSettings()
-                        filterWallpapersAnimation()
-                        window.suppressTextHandler = true
-                        searchInput.text = ""
-                        window.suppressTextHandler = false
-                        searchDebounceTimer.stop()
-                        listView.forceActiveFocus()
-                        return
+                        window.showDynamic = !window.showDynamic;
+                        if (window.showDynamic)
+                            window.showStatic = false;
+                        saveSettings();
+                        filterWallpapersAnimation();
+                        window.suppressTextHandler = true;
+                        searchInput.text = "";
+                        window.suppressTextHandler = false;
+                        searchDebounceTimer.stop();
+                        listView.forceActiveFocus();
+                        return;
                     }
 
                     if (cmd === ":favorite" || cmd === ":f") {
-                        window.showFavorite = !window.showFavorite
-                        saveSettings()
-                        filterWallpapersAnimation()
-                        window.suppressTextHandler = true
-                        searchInput.text = ""
-                        window.suppressTextHandler = false
-                        searchDebounceTimer.stop()
-                        listView.forceActiveFocus()
-                        return
+                        window.showFavorite = !window.showFavorite;
+                        saveSettings();
+                        filterWallpapersAnimation();
+                        window.suppressTextHandler = true;
+                        searchInput.text = "";
+                        window.suppressTextHandler = false;
+                        searchDebounceTimer.stop();
+                        listView.forceActiveFocus();
+                        return;
                     }
                     if (cmd === ":clearcache" || cmd === ":cc") {
-                        deleteFolder(window.thumbFolder)
-                        window.validThumbs.clear()
-                        window.thumbQueue = []
-                        reloadWallpapers()
-                        showStatus("Cleared cache")
-                        window.suppressTextHandler = true
-                        searchInput.text = ""
-                        window.suppressTextHandler = false
-                        listView.forceActiveFocus()
-                        return
+                        deleteFolder(window.thumbFolder);
+                        window.validThumbs.clear();
+                        window.thumbQueue = [];
+                        reloadWallpapers();
+                        showStatus("Cleared cache");
+                        window.suppressTextHandler = true;
+                        searchInput.text = "";
+                        window.suppressTextHandler = false;
+                        listView.forceActiveFocus();
+                        return;
                     }
 
                     if (cmd === ":reload" || cmd === ":rl") {
-                        reloadWallpapers()
-                        showStatus("Reloaded wallpapers")
-                        window.suppressTextHandler = true
-                        searchInput.text = ""
-                        window.suppressTextHandler = false
-                        listView.forceActiveFocus()
-                        return
+                        reloadWallpapers();
+                        showStatus("Reloaded wallpapers");
+                        window.suppressTextHandler = true;
+                        searchInput.text = "";
+                        window.suppressTextHandler = false;
+                        listView.forceActiveFocus();
+                        return;
                     }
 
                     if (cmd === ":random" || cmd === ":r") {
-                        let candidates = getFilteredCandidates().filter(item => !item.isStatic)
+                        let candidates = getFilteredCandidates().filter(item => !item.isStatic);
                         if (candidates.length > 0) {
-                            let pick = candidates[Math.floor(Math.random() * candidates.length)]
-                            applyWallpaper(pick)
-                            window.pendingScrollPath = stripFileScheme(pick.folder).replace(/\/$/, "")
-                            window.preCommandPath = window.pendingScrollPath
-                            window.wasInCommandMode = false
-                            window.suppressTextHandler = true
-                            searchInput.text = ""
-                            window.suppressTextHandler = false
-                            filterWallpapersAnimation()
-                            listView.forceActiveFocus()
-                            showStatus("Applied random wallpaper")
+                            let pick = candidates[Math.floor(Math.random() * candidates.length)];
+                            applyWallpaper(pick);
+                            window.pendingScrollPath = stripFileScheme(pick.folder).replace(/\/$/, "");
+                            window.preCommandPath = window.pendingScrollPath;
+                            window.wasInCommandMode = false;
+                            window.suppressTextHandler = true;
+                            searchInput.text = "";
+                            window.suppressTextHandler = false;
+                            filterWallpapersAnimation();
+                            listView.forceActiveFocus();
+                            showStatus("Applied random wallpaper");
                         }
-                        return
+                        return;
                     }
 
                     if (cmd === ":randomstatic" || cmd === ":rs") {
-                        let candidates = getFilteredCandidates().filter(item => item.isStatic)
+                        let candidates = getFilteredCandidates().filter(item => item.isStatic);
                         if (candidates.length > 0) {
-                            let pick = candidates[Math.floor(Math.random() * candidates.length)]
-                            applyWallpaper(pick)
-                            window.pendingScrollPath = stripFileScheme(pick.folder).replace(/\/$/, "")
-                            window.preCommandPath = window.pendingScrollPath
-                            window.wasInCommandMode = false
-                            window.suppressTextHandler = true
-                            searchInput.text = ""
-                            window.suppressTextHandler = false
-                            filterWallpapersAnimation()
-                            listView.forceActiveFocus()
-                            showStatus("Applied random static wallpaper")
+                            let pick = candidates[Math.floor(Math.random() * candidates.length)];
+                            applyWallpaper(pick);
+                            window.pendingScrollPath = stripFileScheme(pick.folder).replace(/\/$/, "");
+                            window.preCommandPath = window.pendingScrollPath;
+                            window.wasInCommandMode = false;
+                            window.suppressTextHandler = true;
+                            searchInput.text = "";
+                            window.suppressTextHandler = false;
+                            filterWallpapersAnimation();
+                            listView.forceActiveFocus();
+                            showStatus("Applied random static wallpaper");
                         }
-                        return
+                        return;
                     }
 
                     if (cmd === ":randomfav" || cmd === ":rf") {
-                        let candidates = getFilteredCandidates().filter(item => item.isFavorite)
+                        let candidates = getFilteredCandidates().filter(item => item.isFavorite);
                         if (candidates.length > 0) {
-                            let pick = candidates[Math.floor(Math.random() * candidates.length)]
-                            applyWallpaper(pick)
-                            window.pendingScrollPath = stripFileScheme(pick.folder).replace(/\/$/, "")
-                            window.preCommandPath = window.pendingScrollPath
-                            window.wasInCommandMode = false
-                            window.suppressTextHandler = true
-                            searchInput.text = ""
-                            window.suppressTextHandler = false
-                            filterWallpapersAnimation()
-                            listView.forceActiveFocus()
-                            showStatus("Applied random favorite wallpaper")
+                            let pick = candidates[Math.floor(Math.random() * candidates.length)];
+                            applyWallpaper(pick);
+                            window.pendingScrollPath = stripFileScheme(pick.folder).replace(/\/$/, "");
+                            window.preCommandPath = window.pendingScrollPath;
+                            window.wasInCommandMode = false;
+                            window.suppressTextHandler = true;
+                            searchInput.text = "";
+                            window.suppressTextHandler = false;
+                            filterWallpapersAnimation();
+                            listView.forceActiveFocus();
+                            showStatus("Applied random favorite wallpaper");
                         }
-                        return
+                        return;
                     }
 
                     if (cmd.startsWith(":export") || cmd.startsWith(":ex")) {
-                        let arg = rawCmd.replace(/^:(export|ex)\s*/i, "").trim().toLowerCase()
-                        
+                        let arg = rawCmd.replace(/^:(export|ex)\s*/i, "").trim().toLowerCase();
+
                         let exportItems = getFilteredCandidates().filter(item => {
-                            if (item.isStatic) return false
-                            if (arg === "") return true
-                            let title = (item.title || "").toLowerCase()
-                            let folderName = item.folder.split("/").pop().toLowerCase()
-                            return title.indexOf(arg) !== -1 || folderName.indexOf(arg) !== -1
-                        })
+                            if (item.isStatic)
+                                return false;
+                            if (arg === "")
+                                return true;
+                            let title = (item.title || "").toLowerCase();
+                            let folderName = item.folder.split("/").pop().toLowerCase();
+                            return title.indexOf(arg) !== -1 || folderName.indexOf(arg) !== -1;
+                        });
 
                         let lines = exportItems.map(item => {
-                            let id = stripFileScheme(item.folder).replace(/\/$/, "").split("/").pop().replace(/-1$/, "")
-                            return "https://steamcommunity.com/sharedfiles/filedetails/?id=" + id
-                        }).join("\n")
+                            let id = stripFileScheme(item.folder).replace(/\/$/, "").split("/").pop().replace(/-1$/, "");
+                            return "https://steamcommunity.com/sharedfiles/filedetails/?id=" + id;
+                        }).join("\n");
 
-                        let exportPath = stripFileScheme(Qt.resolvedUrl("exported-wallpapers.txt"))
-                        let escaped = lines.replace(/'/g, "'\\''")
-                        writeProcess.command = ["/bin/bash", "-c", `echo '${escaped}' > "${exportPath}"`]
-                        writeProcess.startDetached()
-                        showStatus("Exported " + exportItems.length + " wallpapers to export.txt")
-                        window.suppressTextHandler = true
-                        searchInput.text = ""
-                        window.suppressTextHandler = false
-                        filterWallpapersAnimation()
-                        listView.forceActiveFocus()
-                        return
+                        let exportPath = stripFileScheme(Qt.resolvedUrl("exported-wallpapers.txt"));
+                        let escaped = lines.replace(/'/g, "'\\''");
+                        writeProcess.command = ["/bin/bash", "-c", `echo '${escaped}' > "${exportPath}"`];
+                        writeProcess.startDetached();
+                        showStatus("Exported " + exportItems.length + " wallpapers to export.txt");
+                        window.suppressTextHandler = true;
+                        searchInput.text = "";
+                        window.suppressTextHandler = false;
+                        filterWallpapersAnimation();
+                        listView.forceActiveFocus();
+                        return;
                     }
 
-                     if (cmd.startsWith(":setfolder ") || cmd.startsWith(":sf ")) {
-                        let newPath = rawCmd.replace(/^:(setfolder|sf)\s+/i, "").trim()
+                    if (cmd.startsWith(":setfolder ") || cmd.startsWith(":sf ")) {
+                        let newPath = rawCmd.replace(/^:(setfolder|sf)\s+/i, "").trim();
 
                         if (newPath !== "") {
-                            window.baseFolder = newPath
-                            saveSettings()
-                            reloadWallpapers()
-                            showStatus("Dynamic folder set as: " + newPath)
+                            window.baseFolder = newPath;
+                            saveSettings();
+                            reloadWallpapers();
+                            showStatus("Dynamic folder set as: " + newPath);
                         }
 
-                        searchInput.text = ""
-                        searchDebounceTimer.stop()
-                        listView.forceActiveFocus()
-                        return
+                        searchInput.text = "";
+                        searchDebounceTimer.stop();
+                        listView.forceActiveFocus();
+                        return;
                     }
 
-                    if (cmd.startsWith(":setstatic ") ||  cmd.startsWith(":ss ")) {
-                        let newPath = rawCmd.replace(/^:(setstatic|ss)\s+/i, "").trim()
+                    if (cmd.startsWith(":setstatic ") || cmd.startsWith(":ss ")) {
+                        let newPath = rawCmd.replace(/^:(setstatic|ss)\s+/i, "").trim();
 
                         if (newPath !== "") {
-                            window.staticWallpaperFolder = newPath
-                            saveSettings()
-                            reloadWallpapers()
-                            showStatus("Static folder set as: " + newPath)
+                            window.staticWallpaperFolder = newPath;
+                            saveSettings();
+                            reloadWallpapers();
+                            showStatus("Static folder set as: " + newPath);
                         }
 
-                        searchInput.text = ""
-                        searchDebounceTimer.stop()
-                        listView.forceActiveFocus()
-                        return
+                        searchInput.text = "";
+                        searchDebounceTimer.stop();
+                        listView.forceActiveFocus();
+                        return;
                     }
 
-                    if (cmd.startsWith(":setthumb ") ||  cmd.startsWith(":st ")) {
-                        let newPath = rawCmd.replace(/^:(setthumb|st)\s+/i, "").trim()
-                        
+                    if (cmd.startsWith(":setthumb ") || cmd.startsWith(":st ")) {
+                        let newPath = rawCmd.replace(/^:(setthumb|st)\s+/i, "").trim();
+
                         if (newPath !== "" && newPath !== window.thumbFolder) {
-                            let oldPath = window.thumbFolder
-                            window.thumbQueue = []            
-                            window.thumbFolder = newPath       
-                            saveSettings()
-                            reloadWallpapers()
-                            deleteFolder(oldPath)      
-                            showStatus("Thumbnail folder set as: " + newPath)        
+                            let oldPath = window.thumbFolder;
+                            window.thumbQueue = [];
+                            window.thumbFolder = newPath;
+                            saveSettings();
+                            reloadWallpapers();
+                            deleteFolder(oldPath);
+                            showStatus("Thumbnail folder set as: " + newPath);
                         }
 
-                        searchInput.text = ""
-                        searchDebounceTimer.stop()
-                        listView.forceActiveFocus()
-                        return
+                        searchInput.text = "";
+                        searchDebounceTimer.stop();
+                        listView.forceActiveFocus();
+                        return;
                     }
 
                     if (cmd.startsWith(":sort ")) {
-                        let mode = cmd.replace(":sort ", "").trim()
+                        let mode = cmd.replace(":sort ", "").trim();
 
-                        if (mode === "d") mode = "default"
-                        else if (mode === "n") mode = "name"
-                        else if (mode === "r") mode = "recent"
-                        else if (mode === "f") mode = "favorite"
+                        if (mode === "d")
+                            mode = "default";
+                        else if (mode === "n")
+                            mode = "name";
+                        else if (mode === "r")
+                            mode = "recent";
+                        else if (mode === "f")
+                            mode = "favorite";
 
                         if (["default", "name", "recent", "favorite", "random"].includes(mode)) {
                             if (window.sortMode === mode) {
-                                window.sortDescending = !window.sortDescending
+                                window.sortDescending = !window.sortDescending;
                             } else {
-                                window.sortMode = mode
-                                window.sortDescending = false
+                                window.sortMode = mode;
+                                window.sortDescending = false;
                             }
-                            saveSettings()
-                            filterWallpapersAnimation()
+                            saveSettings();
+                            filterWallpapersAnimation();
                         }
 
-                        window.suppressTextHandler = true
-                        searchInput.text = ""
-                        window.suppressTextHandler = false
-                        searchDebounceTimer.stop()
-                        listView.forceActiveFocus()
-                        return
+                        window.suppressTextHandler = true;
+                        searchInput.text = "";
+                        window.suppressTextHandler = false;
+                        searchDebounceTimer.stop();
+                        listView.forceActiveFocus();
+                        return;
                     }
 
-                    if (cmd === ":open" || cmd === ":o"  ) {
-                    let path = window.preCommandPath !== "" 
-                        ? window.preCommandPath.replace(/\/$/, "").split("/").pop()
-                        : window.lastWallpaperPath.replace(/\/$/, "").split("/").pop()
-                    let id = path.replace(/\/$/, "").split("/").pop().replace(/-1$/, "")
-                    if (id && /^\d+$/.test(id)) {
-                        workshopidProcess.command = ["/bin/bash", "-c", 
-                            `xdg-open "steam://url/CommunityFilePage/${id}"`]
-                        workshopidProcess.startDetached()
+                    if (cmd === ":open" || cmd === ":o") {
+                        let path = window.preCommandPath !== "" ? window.preCommandPath.replace(/\/$/, "").split("/").pop() : window.lastWallpaperPath.replace(/\/$/, "").split("/").pop();
+                        let id = path.replace(/\/$/, "").split("/").pop().replace(/-1$/, "");
+                        if (id && /^\d+$/.test(id)) {
+                            workshopidProcess.command = ["/bin/bash", "-c", `xdg-open "steam://url/CommunityFilePage/${id}"`];
+                            workshopidProcess.startDetached();
                         }
-                        filterWallpapersAnimation()
-                        window.suppressTextHandler = true
-                        searchInput.text = ""
-                        window.suppressTextHandler = false
-                        listView.forceActiveFocus()
-                        return
+                        filterWallpapersAnimation();
+                        window.suppressTextHandler = true;
+                        searchInput.text = "";
+                        window.suppressTextHandler = false;
+                        listView.forceActiveFocus();
+                        return;
                     }
 
                     if (cmd === ":id") {
-                        let path = window.preCommandPath !== "" ? window.preCommandPath : window.lastWallpaperPath
+                        let path = window.preCommandPath !== "" ? window.preCommandPath : window.lastWallpaperPath;
                         if (path !== "") {
-                            let id = path.replace(/\/$/, "").split("/").pop()
-                            workshopidProcess.command = ["/bin/bash", "-c", `printf '%s' "${id}" | wl-copy`]
-                            workshopidProcess.startDetached()
+                            let id = path.replace(/\/$/, "").split("/").pop();
+                            workshopidProcess.command = ["/bin/bash", "-c", `printf '%s' "${id}" | wl-copy`];
+                            workshopidProcess.startDetached();
                         }
-                        filterWallpapersAnimation()
-                        window.suppressTextHandler = true
-                        searchInput.text = ""
-                        window.suppressTextHandler = false
-                        listView.forceActiveFocus()
-                        return
+                        filterWallpapersAnimation();
+                        window.suppressTextHandler = true;
+                        searchInput.text = "";
+                        window.suppressTextHandler = false;
+                        listView.forceActiveFocus();
+                        return;
                     }
 
                     if (cmd === ":gif") {
-                        window.enableGifPreview = !window.enableGifPreview
-                        saveSettings()
-                        filterWallpapersAnimation()
-                        window.suppressTextHandler = true
-                        searchInput.text = ""
-                        window.suppressTextHandler = false
-                        listView.forceActiveFocus()
-                        return
+                        window.enableGifPreview = !window.enableGifPreview;
+                        saveSettings();
+                        filterWallpapersAnimation();
+                        window.suppressTextHandler = true;
+                        searchInput.text = "";
+                        window.suppressTextHandler = false;
+                        listView.forceActiveFocus();
+                        return;
                     }
 
                     if (cmd.startsWith(":tag ")) {
-                        let tag = rawCmd.replace(/^:tag\s+/i, "").trim().toLowerCase()
-                        window.filterTag = window.filterTag === tag ? "" : tag
-                        saveSettings()
-                        filterWallpapersAnimation()
-                        window.suppressTextHandler = true
-                        searchInput.text = ""
-                        window.suppressTextHandler = false
-                        searchDebounceTimer.stop()
-                        listView.forceActiveFocus()
-                        return
+                        let tag = rawCmd.replace(/^:tag\s+/i, "").trim().toLowerCase();
+                        window.filterTag = window.filterTag === tag ? "" : tag;
+                        saveSettings();
+                        filterWallpapersAnimation();
+                        window.suppressTextHandler = true;
+                        searchInput.text = "";
+                        window.suppressTextHandler = false;
+                        searchDebounceTimer.stop();
+                        listView.forceActiveFocus();
+                        return;
                     }
 
                     if (cmd === ":tag") {
-                        window.filterTag = ""
-                        saveSettings()
-                        filterWallpapersAnimation()
-                        window.suppressTextHandler = true
-                        searchInput.text = ""
-                        window.suppressTextHandler = false
-                        searchDebounceTimer.stop()
-                        listView.forceActiveFocus()
-                        return
+                        window.filterTag = "";
+                        saveSettings();
+                        filterWallpapersAnimation();
+                        window.suppressTextHandler = true;
+                        searchInput.text = "";
+                        window.suppressTextHandler = false;
+                        searchDebounceTimer.stop();
+                        listView.forceActiveFocus();
+                        return;
                     }
-                        applyWallpaper(getCurrentFilteredItem())
+                    applyWallpaper(getCurrentFilteredItem());
                 }
             }
 
             function deleteFolder(path) {
-                if (!path || path === "") return
-                deleteFolderProcess.command = ["/bin/bash", "-c", `rm -rf "${path}"`]
-                deleteFolderProcess.startDetached()
+                if (!path || path === "")
+                    return;
+                deleteFolderProcess.command = ["/bin/bash", "-c", `rm -rf "${path}"`];
+                deleteFolderProcess.startDetached();
             }
 
             function scanWallpapers() {
-                console.log("Scanning:", baseFolder)
+                console.log("Scanning:", baseFolder);
 
-                var folders = Qt.createQmlObject(
-                    'import Qt.labs.folderlistmodel 1.0; FolderListModel {}',
-                    window
-                )
-                folders.folder = "file://" + baseFolder
-                folders.showDirs = true
-                folders.showFiles = false
+                var folders = Qt.createQmlObject('import Qt.labs.folderlistmodel 1.0; FolderListModel {}', window);
+                folders.folder = "file://" + baseFolder;
+                folders.showDirs = true;
+                folders.showFiles = false;
 
-                folders.onStatusChanged.connect(function() {
-                    if (folders.status !== FolderListModel.Ready) return
-
-                    masterModel.clear()
+                folders.onStatusChanged.connect(function () {
+                    if (folders.status !== FolderListModel.Ready)
+                        return;
+                    masterModel.clear();
 
                     for (let i = 0; i < folders.count; i++) {
-                        let folderPath = folders.get(i, "filePath")
+                        let folderPath = folders.get(i, "filePath");
                         let cleanPath = stripFileScheme(folderPath);
-                        
+
                         masterModel.append({
                             folder: folderPath,
                             title: "Error! Fix project file.",
@@ -1030,143 +1015,136 @@ Scope {
                             isStatic: false,
                             isFavorite: window.favorites.includes(cleanPath),
                             tags: "[]"
-                        })
-                    
-                        let index = masterModel.count - 1
+                        });
 
-                        getWallpaperInfo(folderPath, function(data) {
-                            let cleanPath = stripFileScheme(folderPath)
-                            let displayTitle = window.renamedTitles[cleanPath] || data.title
-                            masterModel.setProperty(index, "title", displayTitle)
-                            masterModel.setProperty(index, "originalTitle", data.title)
-                            masterModel.setProperty(index, "preview", data.preview)
-                            masterModel.setProperty(index, "contentrating", data.contentrating || "Everyone")
-                            masterModel.setProperty(index, "tags", JSON.stringify(data.tags || []))
-                
-                             
-                             if (data.preview && data.preview !== "") {
-                                let fullPath = stripFileScheme(folderPath) + "/" + data.preview
-                                queueThumbnail(fullPath)
-                            }         
-                        })
+                        let index = masterModel.count - 1;
+
+                        getWallpaperInfo(folderPath, function (data) {
+                            let cleanPath = stripFileScheme(folderPath);
+                            let displayTitle = window.renamedTitles[cleanPath] || data.title;
+                            masterModel.setProperty(index, "title", displayTitle);
+                            masterModel.setProperty(index, "originalTitle", data.title);
+                            masterModel.setProperty(index, "preview", data.preview);
+                            masterModel.setProperty(index, "contentrating", data.contentrating || "Everyone");
+                            masterModel.setProperty(index, "tags", JSON.stringify(data.tags || []));
+
+                            if (data.preview && data.preview !== "") {
+                                let fullPath = stripFileScheme(folderPath) + "/" + data.preview;
+                                queueThumbnail(fullPath);
+                            }
+                        });
                     }
 
-                    var staticFiles = Qt.createQmlObject(
-                        'import Qt.labs.folderlistmodel 1.0; FolderListModel {}', window
-                    )
-                    staticFiles.folder = "file://" + staticWallpaperFolder
-                    staticFiles.showDirs = false
-                    staticFiles.showFiles = true
-                    staticFiles.nameFilters = ["*.jpg", "*.png", "*.jpeg", "*.gif"]
+                    var staticFiles = Qt.createQmlObject('import Qt.labs.folderlistmodel 1.0; FolderListModel {}', window);
+                    staticFiles.folder = "file://" + staticWallpaperFolder;
+                    staticFiles.showDirs = false;
+                    staticFiles.showFiles = true;
+                    staticFiles.nameFilters = ["*.jpg", "*.png", "*.jpeg", "*.gif"];
 
-                    staticFiles.onStatusChanged.connect(function() {
-                        if (staticFiles.status !== FolderListModel.Ready) return
-
+                    staticFiles.onStatusChanged.connect(function () {
+                        if (staticFiles.status !== FolderListModel.Ready)
+                            return;
                         for (let i = 0; i < staticFiles.count; i++) {
-                            let filePath = stripFileScheme(staticFiles.get(i, "filePath")).replace(/\/$/, "")
+                            let filePath = stripFileScheme(staticFiles.get(i, "filePath")).replace(/\/$/, "");
 
-                            queueThumbnail(filePath)
-                            let displayTitle = window.renamedTitles[filePath] || filePath.split("/").pop()
+                            queueThumbnail(filePath);
+                            let displayTitle = window.renamedTitles[filePath] || filePath.split("/").pop();
                             masterModel.append({
-                                folder: filePath,      
+                                folder: filePath,
                                 title: displayTitle,
                                 originalTitle: filePath.split("/").pop(),
                                 isStatic: true,
                                 isFavorite: window.favorites.includes(filePath),
                                 tags: "[]"
-                            })
+                            });
                         }
                         Qt.callLater(() => {
-                            cleanupThumbnails(window.validThumbs)
-                        })
-                        filterWallpapers()
+                            cleanupThumbnails(window.validThumbs);
+                        });
+                        filterWallpapers();
 
                         Qt.callLater(() => {
-                            initialFadeIn.start()
-                            window.isInitialLoad = false
-                        })
-                    })
-                })
+                            initialFadeIn.start();
+                            window.isInitialLoad = false;
+                        });
+                    });
+                });
             }
             Component.onCompleted: {
-                let path = Qt.resolvedUrl("settings.json").toString().replace(/^file:\/\//, "")
-                let dir = path.replace(/\/[^\/]*$/, "")
-                window.settingsPath = path
-                initSettingsProcess.command = ["/bin/bash", "-c", 
-                    `mkdir -p "${dir}" && [ -f "${path}" ] || echo '{}' > "${path}"`]
-                initSettingsProcess.startDetached()
+                let path = Qt.resolvedUrl("settings.json").toString().replace(/^file:\/\//, "");
+                let dir = path.replace(/\/[^\/]*$/, "");
+                window.settingsPath = path;
+                initSettingsProcess.command = ["/bin/bash", "-c", `mkdir -p "${dir}" && [ -f "${path}" ] || echo '{}' > "${path}"`];
+                initSettingsProcess.startDetached();
                 Qt.callLater(() => {
-                    loadSettings(function() {
-                        scanWallpapers()
-                    })
-                })
+                    loadSettings(function () {
+                        scanWallpapers();
+                    });
+                });
             }
 
             function filterWallpapersAnimation() {
-            if (window.isInitialLoad) {
-                    filterWallpapers()
-                    return
+                if (window.isInitialLoad) {
+                    filterWallpapers();
+                    return;
                 }
 
                 if (filterAnimation.running) {
-                    filterAnimation.stop()
+                    filterAnimation.stop();
                 }
 
-                filterAnimation.start()
+                filterAnimation.start();
             }
 
             function filterWallpapers() {
                 var rawFilter = searchInput.text.trim();
-                let wasInCommandMode = window.wasInCommandMode
-                let enteringCommand = rawFilter.startsWith(":")
-                let leavingCommand = !enteringCommand && wasInCommandMode
+                let wasInCommandMode = window.wasInCommandMode;
+                let enteringCommand = rawFilter.startsWith(":");
+                let leavingCommand = !enteringCommand && wasInCommandMode;
 
                 if (enteringCommand && !window.wasInCommandMode) {
-                    let item = getCurrentFilteredItem()
+                    let item = getCurrentFilteredItem();
                     if (item) {
-                        window.preCommandIndex = listView.currentIndex
-                        window.preCommandPath = stripFileScheme(item.folder).replace(/\/$/, "")
+                        window.preCommandIndex = listView.currentIndex;
+                        window.preCommandPath = stripFileScheme(item.folder).replace(/\/$/, "");
                     }
                 }
-                 if (enteringCommand) {
-                    filteredModel.clear()
+                if (enteringCommand) {
+                    filteredModel.clear();
 
-                    window.dynamicIndexes = []
-                    window.staticIndexes = []
+                    window.dynamicIndexes = [];
+                    window.staticIndexes = [];
 
-                    Qt.callLater(() => listView.currentIndex = -1)
+                    Qt.callLater(() => listView.currentIndex = -1);
 
-                    window.wasInCommandMode = true
-                    return
+                    window.wasInCommandMode = true;
+                    return;
                 }
                 var filter = rawFilter.toLowerCase();
-                var previousItem = getCurrentFilteredItem()
-                var previousFolder = previousItem
-                ? stripFileScheme(previousItem.folder).replace(/\/$/, "")
-                : ""
+                var previousItem = getCurrentFilteredItem();
+                var previousFolder = previousItem ? stripFileScheme(previousItem.folder).replace(/\/$/, "") : "";
 
-                
-                var newIndex = -1
-                let items = []
+                var newIndex = -1;
+                let items = [];
 
                 for (var i = 0; i < masterModel.count; i++) {
-                    var item = masterModel.get(i)
-                    var title = (item.title || "").toLowerCase()
-                    var folderName = item.folder.split("/").pop().toLowerCase()
+                    var item = masterModel.get(i);
+                    var title = (item.title || "").toLowerCase();
+                    var folderName = item.folder.split("/").pop().toLowerCase();
 
-                    var matchesText = filter === "" ||
-                                    title.indexOf(filter) !== -1 ||
-                                    folderName.indexOf(filter) !== -1
+                    var matchesText = filter === "" || title.indexOf(filter) !== -1 || folderName.indexOf(filter) !== -1;
 
-                    var allowedContent = window.showMatureContent || (item.contentrating !== "Mature" && item.contentrating !== "Questionable")
-                    var matchesFavorite = !window.showFavorite || item.isFavorite
-                    var matchesStatic = !window.showStatic || item.isStatic
-                    var matchesDynamic = !window.showDynamic || !item.isStatic
-                    var itemTags = []
-                    try { itemTags = JSON.parse(item.tags || "[]") } catch(e) {}
-                    var matchesTag = window.filterTag === "" || (item.tags && item.tags.indexOf(window.filterTag.toLowerCase()) !== -1)
-                    var matchesPlaylist = !window.showPlaylist || window.playlist.indexOf(stripFileScheme(item.folder).replace(/\/$/, "")) !== -1
-                    if (matchesText && allowedContent && matchesFavorite && matchesStatic && matchesDynamic && matchesTag  && matchesPlaylist) {
+                    var allowedContent = window.showMatureContent || (item.contentrating !== "Mature" && item.contentrating !== "Questionable");
+                    var matchesFavorite = !window.showFavorite || item.isFavorite;
+                    var matchesStatic = !window.showStatic || item.isStatic;
+                    var matchesDynamic = !window.showDynamic || !item.isStatic;
+                    var itemTags = [];
+                    try {
+                        itemTags = JSON.parse(item.tags || "[]");
+                    } catch (e) {}
+                    var matchesTag = window.filterTag === "" || (item.tags && item.tags.indexOf(window.filterTag.toLowerCase()) !== -1);
+                    var matchesPlaylist = !window.showPlaylist || window.playlist.indexOf(stripFileScheme(item.folder).replace(/\/$/, "")) !== -1;
+                    if (matchesText && allowedContent && matchesFavorite && matchesStatic && matchesDynamic && matchesTag && matchesPlaylist) {
                         items.push({
                             folder: item.folder,
                             title: item.title,
@@ -1175,170 +1153,181 @@ Scope {
                             isFavorite: item.isFavorite,
                             contentrating: item.contentrating,
                             tags: item.tags || "[]"
-                        })
+                        });
                     }
                 }
 
-               
                 if (window.showPlaylist) {
                     items.sort((a, b) => {
-                        let aIdx = window.playlist.indexOf(stripFileScheme(a.folder).replace(/\/$/, ""))
-                        let bIdx = window.playlist.indexOf(stripFileScheme(b.folder).replace(/\/$/, ""))
-                        return aIdx - bIdx
-                    })
-               } else if (window.sortMode === "default") {
-
-                    let dynamicItems = []
-                    let staticItems = []
+                        let aIdx = window.playlist.indexOf(stripFileScheme(a.folder).replace(/\/$/, ""));
+                        let bIdx = window.playlist.indexOf(stripFileScheme(b.folder).replace(/\/$/, ""));
+                        return aIdx - bIdx;
+                    });
+                } else if (window.sortMode === "default") {
+                    let dynamicItems = [];
+                    let staticItems = [];
 
                     for (let item of items) {
-                        if (item.isStatic) staticItems.push(item)
-                        else dynamicItems.push(item)
+                        if (item.isStatic)
+                            staticItems.push(item);
+                        else
+                            dynamicItems.push(item);
                     }
 
                     dynamicItems.sort((a, b) => {
-                        let aName = a.folder.split("/").pop()
-                        let bName = b.folder.split("/").pop()
+                        let aName = a.folder.split("/").pop();
+                        let bName = b.folder.split("/").pop();
 
-                        let aId = parseInt(aName)
-                        let bId = parseInt(bName)
+                        let aId = parseInt(aName);
+                        let bId = parseInt(bName);
 
                         if (isNaN(aId) || isNaN(bId))
-                            return aName.localeCompare(bName)
+                            return aName.localeCompare(bName);
 
-                        return aId - bId
-                    })
+                        return aId - bId;
+                    });
 
                     staticItems.sort((a, b) => {
-                        let aName = a.folder.split("/").pop()
-                        let bName = b.folder.split("/").pop()
-                        return aName.localeCompare(bName)
-                    })
+                        let aName = a.folder.split("/").pop();
+                        let bName = b.folder.split("/").pop();
+                        return aName.localeCompare(bName);
+                    });
 
-                    items = dynamicItems.concat(staticItems)
-                     if (window.sortDescending) items.reverse()
-                }
-                else if (window.sortMode === "name") {
-                    items.sort((a, b) => (a.title || "").localeCompare(b.title || ""))
-                    if (window.sortDescending) items.reverse()
-                }
-                else if (window.sortMode === "recent") {
+                    items = dynamicItems.concat(staticItems);
+                    if (window.sortDescending)
+                        items.reverse();
+                } else if (window.sortMode === "name") {
+                    items.sort((a, b) => (a.title || "").localeCompare(b.title || ""));
+                    if (window.sortDescending)
+                        items.reverse();
+                } else if (window.sortMode === "recent") {
                     items.sort((a, b) => {
-                        let ta = window.usageMap[stripFileScheme(a.folder).replace(/\/$/, "")] || 0
-                        let tb = window.usageMap[stripFileScheme(b.folder).replace(/\/$/, "")] || 0
-                        return tb - ta
-                    })
-                    if (window.sortDescending) items.reverse()
-                }
-                else if (window.sortMode === "favorite") {
+                        let ta = window.usageMap[stripFileScheme(a.folder).replace(/\/$/, "")] || 0;
+                        let tb = window.usageMap[stripFileScheme(b.folder).replace(/\/$/, "")] || 0;
+                        return tb - ta;
+                    });
+                    if (window.sortDescending)
+                        items.reverse();
+                } else if (window.sortMode === "favorite") {
                     items.sort((a, b) => {
-                        if (a.isFavorite === b.isFavorite) return 0
-                        return b.isFavorite ? 1 : -1
-                    })
-                    if (window.sortDescending) items.reverse()
-                }
-                else if (window.sortMode === "random") {
+                        if (a.isFavorite === b.isFavorite)
+                            return 0;
+                        return b.isFavorite ? 1 : -1;
+                    });
+                    if (window.sortDescending)
+                        items.reverse();
+                } else if (window.sortMode === "random") {
                     for (let i = items.length - 1; i > 0; i--) {
-                        let j = Math.floor(Math.random() * (i + 1))
-                        let tmp = items[i]
-                        items[i] = items[j]
-                        items[j] = tmp
+                        let j = Math.floor(Math.random() * (i + 1));
+                        let tmp = items[i];
+                        items[i] = items[j];
+                        items[j] = tmp;
                     }
-                    if (window.sortDescending) items.reverse()
+                    if (window.sortDescending)
+                        items.reverse();
                 }
 
                 for (let i = filteredModel.count - 1; i >= 0; i--) {
-                    let found = false
+                    let found = false;
                     for (let j = 0; j < items.length; j++) {
-                        if (items[j].folder === filteredModel.get(i).folder) { found = true; break }
+                        if (items[j].folder === filteredModel.get(i).folder) {
+                            found = true;
+                            break;
+                        }
                     }
-                    if (!found) filteredModel.remove(i)
+                    if (!found)
+                        filteredModel.remove(i);
                 }
 
                 for (let i = 0; i < items.length; i++) {
-                    let currentPos = -1
+                    let currentPos = -1;
                     for (let j = 0; j < filteredModel.count; j++) {
-                        if (filteredModel.get(j).folder === items[i].folder) { currentPos = j; break }
+                        if (filteredModel.get(j).folder === items[i].folder) {
+                            currentPos = j;
+                            break;
+                        }
                     }
                     if (currentPos === -1) {
-                        filteredModel.insert(i, items[i])
+                        filteredModel.insert(i, items[i]);
                     } else if (currentPos !== i) {
-                        filteredModel.move(currentPos, i, 1)
+                        filteredModel.move(currentPos, i, 1);
                     }
                 }
 
                 if (previousFolder !== "") {
                     for (let i = 0; i < filteredModel.count; i++) {
-                        let modelPath = stripFileScheme(filteredModel.get(i).folder).replace(/\/$/, "")
+                        let modelPath = stripFileScheme(filteredModel.get(i).folder).replace(/\/$/, "");
                         if (modelPath === previousFolder) {
-                            newIndex = i
-                            break
+                            newIndex = i;
+                            break;
                         }
                     }
                 }
 
                 if (leavingCommand && !window.isMatureContentTriggered && window.preCommandPath !== "") {
-                    let target = window.preCommandPath
+                    let target = window.preCommandPath;
 
                     for (let i = 0; i < filteredModel.count; i++) {
-                        let modelPath = stripFileScheme(filteredModel.get(i).folder).replace(/\/$/, "")
+                        let modelPath = stripFileScheme(filteredModel.get(i).folder).replace(/\/$/, "");
 
                         if (modelPath === target) {
-                            newIndex = i
-                            break
+                            newIndex = i;
+                            break;
                         }
                     }
                 }
 
                 if (window.pendingScrollPath !== "") {
-                    let target = window.pendingScrollPath
+                    let target = window.pendingScrollPath;
                     for (let i = 0; i < filteredModel.count; i++) {
-                        let modelPath = stripFileScheme(filteredModel.get(i).folder).replace(/\/$/, "")
+                        let modelPath = stripFileScheme(filteredModel.get(i).folder).replace(/\/$/, "");
                         if (modelPath === target) {
-                            newIndex = i
-                            break
+                            newIndex = i;
+                            break;
                         }
                     }
                 }
 
-                window.dynamicIndexes = []
-                window.staticIndexes = []
+                window.dynamicIndexes = [];
+                window.staticIndexes = [];
                 for (let i = 0; i < filteredModel.count; i++) {
-                    let item = filteredModel.get(i)
-                    if (item.isStatic) window.staticIndexes.push(i)
-                    else window.dynamicIndexes.push(i)
+                    let item = filteredModel.get(i);
+                    if (item.isStatic)
+                        window.staticIndexes.push(i);
+                    else
+                        window.dynamicIndexes.push(i);
                 }
 
                 if ((window.isInitialLoad || window.isMatureContentTriggered) && window.lastWallpaperPath) {
                     for (let i = 0; i < filteredModel.count; i++) {
-                        let modelPath = stripFileScheme(filteredModel.get(i).folder)
+                        let modelPath = stripFileScheme(filteredModel.get(i).folder);
                         if (modelPath === window.lastWallpaperPath) {
-                            newIndex = i
-                            break
+                            newIndex = i;
+                            break;
                         }
                     }
-                    window.isMatureContentTriggered = false
+                    window.isMatureContentTriggered = false;
                 }
 
                 if (newIndex === -1 && filteredModel.count > 0)
-                    newIndex = 0
+                    newIndex = 0;
 
                 if (newIndex !== -1) {
-                    window.targetIndexTracker = newIndex
+                    window.targetIndexTracker = newIndex;
+                    Qt.callLater(() => {
+                        if (listView.count === 0)
+                            return;
+                        listView.currentIndex = newIndex;
+
                         Qt.callLater(() => {
-                            if (listView.count === 0) return
-
-                            listView.currentIndex = newIndex
-
-                            Qt.callLater(() => {
-                                listView.positionViewAtIndex(newIndex, ListView.Center)
-                            })
-                        })
+                            listView.positionViewAtIndex(newIndex, ListView.Center);
+                        });
+                    });
                 }
-                window.wasInCommandMode = enteringCommand
+                window.wasInCommandMode = enteringCommand;
             }
 
-            ListModel { 
+            ListModel {
                 id: filteredModel
             }
 
@@ -1358,60 +1347,60 @@ Scope {
                     focus: true
                     Component.onCompleted: listView.forceActiveFocus()
 
-                    Keys.onPressed: (event) => {
-
+                    Keys.onPressed: event => {
                         if (event.matches(StandardKey.Paste)) {
-                            searchInput.visible = true
+                            searchInput.visible = true;
                             Qt.callLater(() => {
-                                searchInput.forceActiveFocus()
-                                searchInput.paste()
-                            })
+                                searchInput.forceActiveFocus();
+                                searchInput.paste();
+                            });
 
-                            event.accepted = true
-                            return
+                            event.accepted = true;
+                            return;
                         }
 
                         if (event.key === Qt.Key_F && (event.modifiers & Qt.ControlModifier)) {
-                            let item = getCurrentFilteredItem()
-                            if (!item) return
-
-                            let path = stripFileScheme(item.folder)
+                            let item = getCurrentFilteredItem();
+                            if (!item)
+                                return;
+                            let path = stripFileScheme(item.folder);
 
                             for (let i = 0; i < masterModel.count; i++) {
-                                let mItem = masterModel.get(i)
+                                let mItem = masterModel.get(i);
                                 if (stripFileScheme(mItem.folder) === path) {
-                                    mItem.isFavorite = !mItem.isFavorite
+                                    mItem.isFavorite = !mItem.isFavorite;
 
                                     if (mItem.isFavorite) {
-                                        if (!window.favorites.includes(path)) window.favorites.push(path)
+                                        if (!window.favorites.includes(path))
+                                            window.favorites.push(path);
                                     } else {
-                                        let idx = window.favorites.indexOf(path)
-                                        if (idx !== -1) window.favorites.splice(idx, 1)
+                                        let idx = window.favorites.indexOf(path);
+                                        if (idx !== -1)
+                                            window.favorites.splice(idx, 1);
                                     }
 
-                                    saveSettings()
-                                    break
+                                    saveSettings();
+                                    break;
                                 }
                             }
 
-                            item.isFavorite = !item.isFavorite
-                            event.accepted = true
-                            return
+                            item.isFavorite = !item.isFavorite;
+                            event.accepted = true;
+                            return;
                         }
 
                         if (event.modifiers & (Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier)) {
                             if (!(event.key === Qt.Key_F && (event.modifiers & Qt.ControlModifier))) {
-                                return
+                                return;
                             }
                         }
-                        if (!searchInput.activeFocus && !window.showHelp &&  event.key !== Qt.Key_Backspace && event.key !== Qt.Key_Escape && event.key !== Qt.Key_Tab && event.text.length > 0) {
+                        if (!searchInput.activeFocus && !window.showHelp && event.key !== Qt.Key_Backspace && event.key !== Qt.Key_Escape && event.key !== Qt.Key_Tab && event.text.length > 0) {
                             searchInput.visible = true;
                             searchInput.forceActiveFocus();
-                            searchInput.text = event.text; 
-                            searchInput.cursorPosition = 1; 
+                            searchInput.text = event.text;
+                            searchInput.cursorPosition = 1;
                             event.accepted = true;
                         }
-                        
                     }
 
                     TextField {
@@ -1462,15 +1451,15 @@ Scope {
 
                         onTextChanged: {
                             if (window.suppressTextHandler)
-                            return
-                            let isCommand = text.trim().startsWith(":")
-                            let wasCommand = window.wasInCommandMode
-                                updateSuggestions(text)
-                           if (isCommand && !wasCommand) {
-                                searchDebounceTimer.stop()
-                                filterWallpapersAnimation()
+                                return;
+                            let isCommand = text.trim().startsWith(":");
+                            let wasCommand = window.wasInCommandMode;
+                            updateSuggestions(text);
+                            if (isCommand && !wasCommand) {
+                                searchDebounceTimer.stop();
+                                filterWallpapersAnimation();
                             } else if (!isCommand) {
-                                searchDebounceTimer.restart()
+                                searchDebounceTimer.restart();
                             }
                         }
                     }
@@ -1482,8 +1471,8 @@ Scope {
                         z: 19
                         propagateComposedEvents: true
                         onClicked: {
-                            window.suggestions = []
-                            window.suggestionIndex = -1
+                            window.suggestions = [];
+                            window.suggestionIndex = -1;
                         }
                     }
 
@@ -1514,36 +1503,36 @@ Scope {
 
                             onCurrentIndexChanged: {
                                 if (currentIndex >= 0) {
-                                    positionViewAtIndex(currentIndex, ListView.Contain)
+                                    positionViewAtIndex(currentIndex, ListView.Contain);
                                 }
                             }
 
                             onModelChanged: {
-                                suggestionList.hoverItem = ""
-                                suggestionList.hoverLocked = false
+                                suggestionList.hoverItem = "";
+                                suggestionList.hoverLocked = false;
                             }
-                            
+
                             MouseArea {
                                 anchors.fill: parent
                                 acceptedButtons: Qt.NoButton
                                 propagateComposedEvents: true
-                                onWheel: (wheel) => {
-                                    suggestionList.hoverItem = ""
-                                    suggestionList.hoverLocked = true
+                                onWheel: wheel => {
+                                    suggestionList.hoverItem = "";
+                                    suggestionList.hoverLocked = true;
 
-                                    let newIndex = window.suggestionIndex
+                                    let newIndex = window.suggestionIndex;
 
                                     if (newIndex < 0)
-                                        newIndex = 0
+                                        newIndex = 0;
 
                                     if (wheel.angleDelta.y > 0)
-                                        newIndex--
+                                        newIndex--;
                                     else
-                                        newIndex++
+                                        newIndex++;
 
-                                    newIndex = Math.max(0, Math.min(window.suggestions.length - 1, newIndex))
+                                    newIndex = Math.max(0, Math.min(window.suggestions.length - 1, newIndex));
 
-                                    window.suggestionIndex = newIndex
+                                    window.suggestionIndex = newIndex;
                                 }
                             }
 
@@ -1552,33 +1541,29 @@ Scope {
                                 width: autocompleteDropdown.width
                                 height: 32
                                 radius: 15
-                                property bool suggestionHovered: false
-                               color: (suggestionList.hoverItem !== "")
-                                ? (modelData === suggestionList.hoverItem
-                                    ? Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, 0.1)
-                                    : "transparent")
-                                : (index === suggestionList.currentIndex
-                                    ? Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, 0.1)
-                                    : "transparent")
+                                color: (suggestionList.hoverItem !== "") ? (modelData === suggestionList.hoverItem ? Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, 0.1) : "transparent") : (index === suggestionList.currentIndex ? Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, 0.1) : "transparent")
 
-                                Behavior on color { ColorAnimation { duration: 200; easing.type: Easing.BezierSpline; easing.bezierCurve: [0.22, 1, 0.36, 1, 1, 1] } }
-
+                                Behavior on color {
+                                    ColorAnimation {
+                                        duration: 200
+                                        easing.type: Easing.BezierSpline
+                                        easing.bezierCurve: [0.22, 1, 0.36, 1, 1, 1]
+                                    }
+                                }
 
                                 Text {
                                     anchors.verticalCenter: parent.verticalCenter
                                     anchors.left: parent.left
                                     anchors.leftMargin: 12
                                     text: {
-                                        let s = modelData.endsWith("/") ? modelData.slice(0, -1) : modelData
-                                        return s.split("/").pop() + (modelData.endsWith("/") ? "/" : "")
+                                        let s = modelData.endsWith("/") ? modelData.slice(0, -1) : modelData;
+                                        return s.split("/").pop() + (modelData.endsWith("/") ? "/" : "");
                                     }
                                     color: Theme.text
                                     font.pixelSize: 13
                                     elide: Text.ElideRight
                                     width: parent.width - 24
-                                    opacity: (suggestionList.hoverItem !== "")
-                                        ? (modelData === suggestionList.hoverItem ? 1 : 0.7)
-                                        : (index === window.suggestionIndex ? 1 : 0.7)
+                                    opacity: (suggestionList.hoverItem !== "") ? (modelData === suggestionList.hoverItem ? 1 : 0.7) : (index === window.suggestionIndex ? 1 : 0.7)
                                 }
 
                                 MouseArea {
@@ -1587,19 +1572,19 @@ Scope {
                                     cursorShape: Qt.PointingHandCursor
 
                                     onPositionChanged: {
-                                        suggestionList.hoverLocked = false
+                                        suggestionList.hoverLocked = false;
                                     }
 
                                     onEntered: {
                                         if (!suggestionList.hoverLocked) {
-                                            suggestionList.hoverItem = modelData
-                                            window.suggestionIndex = index
+                                            suggestionList.hoverItem = modelData;
+                                            window.suggestionIndex = index;
                                         }
                                     }
 
-                                                                        onExited: {
+                                    onExited: {
                                         if (suggestionList.hoverItem === modelData) {
-                                            suggestionList.hoverItem = ""
+                                            suggestionList.hoverItem = "";
                                         }
                                     }
 
@@ -1623,60 +1608,74 @@ Scope {
                         elide: Text.ElideRight
                         z: 1
 
-                        Behavior on opacity { NumberAnimation { duration: 200; easing.type: Easing.BezierSpline; easing.bezierCurve: [0.22, 1, 0.36, 1, 1, 1] } }
+                        Behavior on opacity {
+                            NumberAnimation {
+                                duration: 200
+                                easing.type: Easing.BezierSpline
+                                easing.bezierCurve: [0.22, 1, 0.36, 1, 1, 1]
+                            }
+                        }
 
                         text: {
-                            if (window.statusMessage !== "") return window.statusMessage
-                            let parts = []
-                            if (window.showFavorite)      parts.push(" Favorites")
-                            if (window.showStatic)        parts.push(" Static")
-                            if (window.showDynamic)       parts.push(" Dynamic")
-                            if (window.showMatureContent && !showStatic) parts.push(" NSFW")
+                            if (window.statusMessage !== "")
+                                return window.statusMessage;
+                            let parts = [];
+                            if (window.showFavorite)
+                                parts.push(" Favorites");
+                            if (window.showStatic)
+                                parts.push(" Static");
+                            if (window.showDynamic)
+                                parts.push(" Dynamic");
+                            if (window.showMatureContent && !showStatic)
+                                parts.push(" NSFW");
                             if (window.playlistActive) {
-                                parts.push("󰐑 Playlist " + (window.showPlaylist ? "only " : "") + window.playlist.length + (window.playlistShuffle ? " " : ""))
+                                parts.push("󰐑 Playlist " + (window.showPlaylist ? "only " : "") + window.playlist.length + (window.playlistShuffle ? " " : ""));
                             } else if (window.playlist.length > 0) {
-                                parts.push(" Playlist " + (window.showPlaylist ? "only " : "") + window.playlist.length + (window.playlistShuffle ? " " : ""))
+                                parts.push(" Playlist " + (window.showPlaylist ? "only " : "") + window.playlist.length + (window.playlistShuffle ? " " : ""));
                             } else if (window.showPlaylist) {
-                                parts.push(" Playlist only")
+                                parts.push(" Playlist only");
                             }
-                            if (window.sortMode !== "default" && window.sortMode !== "random" ) parts.push("Sort: " + window.sortMode + (window.sortDescending ? " ↓" : " ↑"))
-                            if ( window.sortMode == "random" ) parts.push("Sort: " + window.sortMode)
-                            if (window.filterTag !== "") parts.push("⌗ " + window.filterTag)
-                            if (!window.enableGifPreview) parts.push(" No gif")
-                            return parts.length > 0 ? parts.join("  |  ") : " "
+                            if (window.sortMode !== "default" && window.sortMode !== "random")
+                                parts.push("Sort: " + window.sortMode + (window.sortDescending ? " ↓" : " ↑"));
+                            if (window.sortMode == "random")
+                                parts.push("Sort: " + window.sortMode);
+                            if (window.filterTag !== "")
+                                parts.push("⌗ " + window.filterTag);
+                            if (!window.enableGifPreview)
+                                parts.push(" No gif");
+                            return parts.length > 0 ? parts.join("  |  ") : " ";
                         }
                     }
-                        
-                Rectangle {
 
-                    id: clipContainer
-                    anchors.fill: parent
-                    anchors.margins: 15
-                    anchors.topMargin: 0
-                    anchors.bottomMargin: 0
-                    color: "transparent"
-                    clip: true
-                    z: 0
-
-                    ListView {
-                        id: listView
-                        opacity: 0
+                    Rectangle {
+                        id: clipContainer
                         anchors.fill: parent
-                        anchors.topMargin: 90
-                        anchors.bottomMargin: 90
-                        orientation: ListView.Horizontal
-                        spacing: 30
-                        model: filteredModel
-                        cacheBuffer: 300
-                        highlightMoveDuration: 300
-                        boundsBehavior: Flickable.StopAtBounds
-                        highlightFollowsCurrentItem: true
-                        highlight: Item { }
-                        preferredHighlightBegin: (width / 2) - 100
-                        preferredHighlightEnd: (width / 2) - 100
-                        highlightRangeMode: ListView.StrictlyEnforceRange
+                        anchors.margins: 15
+                        anchors.topMargin: 0
+                        anchors.bottomMargin: 0
+                        color: "transparent"
+                        clip: true
+                        z: 0
 
-                        NumberAnimation {
+                        ListView {
+                            id: listView
+                            opacity: 0
+                            anchors.fill: parent
+                            anchors.topMargin: 90
+                            anchors.bottomMargin: 90
+                            orientation: ListView.Horizontal
+                            spacing: 30
+                            model: filteredModel
+                            cacheBuffer: 300
+                            highlightMoveDuration: 300
+                            boundsBehavior: Flickable.StopAtBounds
+                            highlightFollowsCurrentItem: true
+                            highlight: Item {}
+                            preferredHighlightBegin: (width / 2) - 100
+                            preferredHighlightEnd: (width / 2) - 100
+                            highlightRangeMode: ListView.StrictlyEnforceRange
+
+                            NumberAnimation {
                                 id: initialFadeIn
                                 target: listView
                                 property: "opacity"
@@ -1687,400 +1686,458 @@ Scope {
                                 easing.bezierCurve: [0.5, 0.5, 0.75, 1.0, 1, 1]
                             }
 
-                        delegate: Item {
-                            id: delegateRoot
-                            width:  200
-                            height: 360
-                            
-                            property bool isVisibleOnScreen: delegateRoot.ListView.view ? 
-                            (x + width > ListView.view.contentX && x < ListView.view.contentX + ListView.view.width) : false
+                            delegate: Item {
+                                id: delegateRoot
+                                width: 200
+                                height: 360
 
-                            property int playlistPosition: {
-                                let path = folder ? stripFileScheme(folder).replace(/\/$/, "") : ""
-                                return window.playlist.indexOf(path)
-                            }
-                            property bool inPlaylist: playlistPosition !== -1
-                            property int lastValidPosition: 0
+                                property bool isVisibleOnScreen: delegateRoot.ListView.view ? (x + width > ListView.view.contentX && x < ListView.view.contentX + ListView.view.width) : false
 
-                            onPlaylistPositionChanged: {
-                                if (playlistPosition !== -1) lastValidPosition = playlistPosition
-                            }
-                            property bool isCurrent: ListView.isCurrentItem
-                            property bool hovered: scaleMouseArea.containsMouse || favContainer.mouseOverFav
-                            property bool active: window.keyboardNavigation ? isCurrent : hovered
+                                property int playlistPosition: {
+                                    let path = folder ? stripFileScheme(folder).replace(/\/$/, "") : "";
+                                    return window.playlist.indexOf(path);
+                                }
+                                property bool inPlaylist: playlistPosition !== -1
+                                property int lastValidPosition: 0
 
-                        
-                            Item {
-                                id: scaleContainer
-                                anchors.fill: parent
-                                scale: active ? 1.2 : 1
-                                transformOrigin: Item.Center
-                                Behavior on scale { NumberAnimation { duration: 600; easing.type: Easing.BezierSpline; easing.bezierCurve: [0.22, 1, 0.36, 1, 1, 1] } }
+                                onPlaylistPositionChanged: {
+                                    if (playlistPosition !== -1)
+                                        lastValidPosition = playlistPosition;
+                                }
+                                property bool isCurrent: ListView.isCurrentItem
+                                property bool hovered: scaleMouseArea.containsMouse || favContainer.mouseOverFav
+                                property bool active: window.keyboardNavigation ? isCurrent : hovered
 
-                                Rectangle {
+                                Item {
+                                    id: scaleContainer
                                     anchors.fill: parent
-                                    color: Theme.background
-                                    radius: 15
-                                    antialiasing: true
+                                    scale: active ? 1.2 : 1
+                                    transformOrigin: Item.Center
+                                    Behavior on scale {
+                                        NumberAnimation {
+                                            duration: 600
+                                            easing.type: Easing.BezierSpline
+                                            easing.bezierCurve: [0.22, 1, 0.36, 1, 1, 1]
+                                        }
+                                    }
 
-                                    Item {
+                                    Rectangle {
                                         anchors.fill: parent
-                                        anchors.margins: 1
-                                        layer.enabled: isVisibleOnScreen
-                                        layer.effect: MultiEffect {
-                                            maskEnabled: true
-                                            maskSource: ShaderEffectSource {
-                                                sourceItem: Rectangle {
-                                                    width: delegateRoot.width
-                                                    height: delegateRoot.height
-                                                    radius: 15
-                                                    color: "black"
-                                                    antialiasing: true
+                                        color: Theme.background
+                                        radius: 15
+                                        antialiasing: true
+
+                                        Item {
+                                            anchors.fill: parent
+                                            anchors.margins: 1
+                                            layer.enabled: isVisibleOnScreen
+                                            layer.effect: MultiEffect {
+                                                maskEnabled: true
+                                                maskSource: ShaderEffectSource {
+                                                    sourceItem: Rectangle {
+                                                        width: delegateRoot.width
+                                                        height: delegateRoot.height
+                                                        radius: 15
+                                                        color: "black"
+                                                        antialiasing: true
+                                                    }
+                                                }
+                                            }
+
+                                            Loader {
+                                                id: previewLoader
+                                                anchors.fill: parent
+
+                                                property string normalizedPath: folder ? folder.replace(/\/$/, "") : ""
+                                                property bool isGif: window.enableGifPreview && preview && preview.toLowerCase().endsWith(".gif")
+
+                                                sourceComponent: isGif ? animatedPreview : staticPreview
+
+                                                Component {
+                                                    id: staticPreview
+                                                    Image {
+                                                        id: staticImg
+                                                        anchors.fill: parent
+                                                        fillMode: Image.PreserveAspectCrop
+                                                        asynchronous: true
+                                                        smooth: true
+                                                        cache: true
+                                                        sourceSize.width: 200
+                                                        sourceSize.height: 360
+                                                        source: {
+                                                            if (!previewLoader.normalizedPath)
+                                                                return "";
+                                                            let fullPath;
+                                                            if (preview && preview !== "")
+                                                                fullPath = previewLoader.normalizedPath + "/" + preview;
+                                                            else if (isStatic)
+                                                                fullPath = previewLoader.normalizedPath;
+                                                            else
+                                                                return "";
+                                                            let hash = Qt.md5(fullPath);
+                                                            return "file://" + window.thumbFolder + "/" + hash + ".jpg";
+                                                        }
+
+                                                        onStatusChanged: {
+                                                            if (status === Image.Ready)
+                                                                fadeIn.start();
+                                                        }
+                                                        NumberAnimation {
+                                                            id: fadeIn
+                                                            target: staticImg
+                                                            property: "opacity"
+                                                            from: 0
+                                                            to: 1
+                                                            duration: 200
+                                                            easing.type: Easing.BezierSpline
+                                                            easing.bezierCurve: [0.5, 0.5, 0.75, 1.0, 1, 1]
+                                                        }
+                                                    }
+                                                }
+
+                                                Component {
+                                                    id: animatedPreview
+                                                    AnimatedImage {
+                                                        id: animImg
+                                                        anchors.fill: parent
+                                                        fillMode: Image.PreserveAspectCrop
+                                                        asynchronous: true
+                                                        smooth: true
+                                                        cache: true
+                                                        sourceSize.width: 200
+                                                        playing: isVisibleOnScreen
+                                                        source: previewLoader.normalizedPath !== "" ? "file://" + previewLoader.normalizedPath + "/" + preview : ""
+
+                                                        onStatusChanged: {
+                                                            if (status === AnimatedImage.Ready)
+                                                                fadeIn.start();
+                                                        }
+                                                        NumberAnimation {
+                                                            id: fadeIn
+                                                            target: animImg
+                                                            property: "opacity"
+                                                            from: 0
+                                                            to: 1
+                                                            duration: 200
+                                                            easing.type: Easing.BezierSpline
+                                                            easing.bezierCurve: [0.5, 0.5, 0.75, 1.0, 1, 1]
+                                                        }
+                                                    }
                                                 }
                                             }
                                         }
 
-                                        Loader {
-                                            id: previewLoader
-                                            anchors.fill: parent
+                                        Rectangle {
+                                            anchors.bottom: parent.bottom
+                                            width: parent.width
+                                            height: active ? 33 : 0
+                                            color: Theme.background
+                                            radius: 15
+                                            opacity: active ? 1 : 0
+                                            visible: true
 
-                                            property string normalizedPath: folder ? folder.replace(/\/$/, "") : ""
-                                            property bool isGif: window.enableGifPreview && preview && preview.toLowerCase().endsWith(".gif")
-
-                                            sourceComponent: isGif ? animatedPreview : staticPreview
-
-                                            Component {
-                                                id: staticPreview
-                                                Image {
-                                                    id: staticImg
-                                                    anchors.fill: parent
-                                                    fillMode: Image.PreserveAspectCrop
-                                                    asynchronous: true
-                                                    smooth: true
-                                                    cache: true
-                                                    sourceSize.width: 200
-                                                    sourceSize.height: 360
-                                                    source: {
-                                                        if (!previewLoader.normalizedPath) return ""
-                                                        let fullPath
-                                                        if (preview && preview !== "") fullPath = previewLoader.normalizedPath + "/" + preview
-                                                        else if (isStatic) fullPath = previewLoader.normalizedPath
-                                                        else return ""
-                                                        let hash = Qt.md5(fullPath)
-                                                        return "file://" + window.thumbFolder + "/" + hash + ".jpg"
-                                                    }
-
-                                                    onStatusChanged: {
-                                                        if (status === Image.Ready) fadeIn.start()
-                                                    }
-                                                    NumberAnimation {
-                                                        id: fadeIn
-                                                        target: staticImg
-                                                        property: "opacity"
-                                                        from: 0; to: 1
-                                                        duration: 200
-                                                        easing.type: Easing.BezierSpline
-                                                        easing.bezierCurve: [0.5, 0.5, 0.75, 1.0, 1, 1]
-                                                    }
+                                            Behavior on opacity {
+                                                NumberAnimation {
+                                                    duration: 300
+                                                    easing.type: Easing.BezierSpline
+                                                    easing.bezierCurve: [0.5, 0.5, 0.75, 1.0, 1, 1]
                                                 }
                                             }
 
-                                            Component {
-                                                id: animatedPreview
-                                                AnimatedImage {
-                                                    id: animImg
-                                                    anchors.fill: parent
-                                                    fillMode: Image.PreserveAspectCrop
-                                                    asynchronous: true
-                                                    smooth: true
-                                                    cache: true
-                                                    sourceSize.width: 200
-                                                    playing: isVisibleOnScreen
-                                                    source: previewLoader.normalizedPath !== ""
-                                                        ? "file://" + previewLoader.normalizedPath + "/" + preview
-                                                        : ""
+                                            Behavior on height {
+                                                NumberAnimation {
+                                                    duration: 300
+                                                    easing.type: Easing.BezierSpline
+                                                    easing.bezierCurve: [0.5, 0.5, 0.75, 1.0, 1, 1]
+                                                }
+                                            }
 
-                                                    onStatusChanged: {
-                                                        if (status === AnimatedImage.Ready) fadeIn.start()
-                                                    }
-                                                    NumberAnimation {
-                                                        id: fadeIn
-                                                        target: animImg
-                                                        property: "opacity"
-                                                        from: 0; to: 1
-                                                        duration: 200
-                                                        easing.type: Easing.BezierSpline
-                                                        easing.bezierCurve: [0.5, 0.5, 0.75, 1.0, 1, 1]
-                                                    }
+                                            Text {
+                                                anchors.centerIn: parent
+                                                text: title
+                                                color: Theme.text
+                                                width: parent.width - 20
+                                                horizontalAlignment: Text.AlignHCenter
+                                                elide: Text.ElideRight
+                                                font.pixelSize: 13
+                                            }
+                                        }
+
+                                        Rectangle {
+                                            anchors.fill: parent
+                                            color: "transparent"
+                                            border.width: 1
+                                            border.color: Theme.background
+                                            radius: 15
+                                            antialiasing: true
+                                        }
+
+                                        Rectangle {
+                                            anchors.fill: parent
+                                            color: "transparent"
+                                            border.width: 2
+                                            border.color: Theme.border
+                                            radius: 15
+                                            antialiasing: true
+                                            opacity: active ? 1 : 0
+                                            Behavior on opacity {
+                                                NumberAnimation {
+                                                    duration: 300
+                                                    easing.type: Easing.BezierSpline
+                                                    easing.bezierCurve: [0.5, 0.5, 0.75, 1.0, 1, 1]
                                                 }
                                             }
                                         }
                                     }
 
                                     Rectangle {
-                                        anchors.bottom: parent.bottom
-                                        width: parent.width; height: active ? 33 : 0
-                                        color: Theme.background
+                                        opacity: delegateRoot.inPlaylist ? 1 : 0
+                                        anchors.centerIn: parent
+                                        anchors.topMargin: 10
+                                        anchors.leftMargin: 10
+                                        width: 200
+                                        height: 360
                                         radius: 15
-                                        opacity: active ? 1 : 0
-                                        visible: true
-
-                                        Behavior on opacity { NumberAnimation { duration: 300; easing.type: Easing.BezierSpline; easing.bezierCurve: [0.5, 0.5, 0.75, 1.0, 1, 1] } }
-
-                                        Behavior on height { NumberAnimation { duration: 300; easing.type: Easing.BezierSpline; easing.bezierCurve: [0.5, 0.5, 0.75, 1.0, 1, 1] } }
+                                        color: Theme.background
+                                        border.width: active ? 2 : 1
+                                        border.color: active ? Theme.border : Theme.background
+                                        Behavior on border.color {
+                                            ColorAnimation {
+                                                duration: 300
+                                            }
+                                        }
+                                        Behavior on opacity {
+                                            NumberAnimation {
+                                                duration: 300
+                                                easing.type: Easing.BezierSpline
+                                                easing.bezierCurve: [0.5, 0.5, 0.75, 1.0, 1, 1]
+                                            }
+                                        }
 
                                         Text {
                                             anchors.centerIn: parent
-                                            text: title
-                                            color: Theme.text
-                                            width: parent.width - 20
-                                            horizontalAlignment: Text.AlignHCenter
-                                            elide: Text.ElideRight
-                                            font.pixelSize: 13
+                                            text: String(delegateRoot.lastValidPosition + 1)
+                                            color: Theme.border
+                                            font.pixelSize: 100
+                                            font.weight: Font.Medium
                                         }
                                     }
 
-                                    Rectangle {
-                                        anchors.fill: parent
-                                        color: "transparent"
-                                        border.width: 1
-                                        border.color: Theme.background
-                                        radius: 15
-                                        antialiasing: true
-                                    }
+                                    Item {
+                                        id: favContainer
+                                        width: 30
+                                        height: 30
+                                        anchors.top: parent.top
+                                        anchors.right: parent.right
+                                        anchors.topMargin: 10
+                                        anchors.rightMargin: 15
+                                        property bool mouseOverFav: false
 
-                                    Rectangle {
-                                        anchors.fill: parent
-                                        color: "transparent"
-                                        border.width: 2
-                                        border.color: Theme.border
-                                        radius: 15
-                                        antialiasing: true
-                                        opacity: active ? 1 : 0
-                                        Behavior on opacity { NumberAnimation { duration: 300; easing.type: Easing.BezierSpline; easing.bezierCurve: [0.5, 0.5, 0.75, 1.0, 1, 1] } }
-                                    }
-                                }
+                                        MouseArea {
+                                            anchors.fill: parent
+                                            hoverEnabled: true
+                                            cursorShape: Qt.PointingHandCursor
+                                            onEntered: favContainer.mouseOverFav = true
+                                            onExited: favContainer.mouseOverFav = false
+                                            onClicked: {
+                                                let path = window.stripFileScheme(model.folder);
 
-                                Rectangle {
-                                    opacity: delegateRoot.inPlaylist ? 1 : 0
-                                    anchors.centerIn: parent
-                                    anchors.topMargin: 10
-                                    anchors.leftMargin: 10
-                                    width: 200
-                                    height: 360
-                                    radius: 15
-                                    color: Theme.background
-                                    border.width: active ? 2 : 1
-                                    border.color: active ? Theme.border : Theme.background
-                                    Behavior on border.color { ColorAnimation { duration: 300 } }
-                                    Behavior on opacity { NumberAnimation { duration: 300; easing.type: Easing.BezierSpline; easing.bezierCurve: [0.5, 0.5, 0.75, 1.0, 1, 1] } }
+                                                for (let i = 0; i < masterModel.count; i++) {
+                                                    let mItem = masterModel.get(i);
+                                                    if (window.stripFileScheme(mItem.folder) === path) {
+                                                        mItem.isFavorite = !mItem.isFavorite;
 
-                                    Text {
-                                        anchors.centerIn: parent
-                                        text: String(delegateRoot.lastValidPosition + 1)
-                                        color: Theme.border
-                                        font.pixelSize: 100
-                                        font.weight: Font.Medium
-                                    }
-                                }
+                                                        if (mItem.isFavorite) {
+                                                            if (!window.favorites.includes(path))
+                                                                window.favorites.push(path);
+                                                        } else {
+                                                            let idx = window.favorites.indexOf(path);
+                                                            if (idx !== -1)
+                                                                window.favorites.splice(idx, 1);
+                                                        }
 
-                                Item {
-                                    id: favContainer
-                                    width: 30; height: 30
-                                    anchors.top: parent.top
-                                    anchors.right: parent.right
-                                    anchors.topMargin: 10
-                                    anchors.rightMargin: 15
-                                    property bool mouseOverFav: false
-
-                                    MouseArea {
-                                        anchors.fill: parent
-                                        hoverEnabled: true
-                                        cursorShape: Qt.PointingHandCursor
-                                        onEntered: favContainer.mouseOverFav = true
-                                        onExited: favContainer.mouseOverFav = false
-                                        onClicked: {
-                                            let path = window.stripFileScheme(model.folder)
-
-                                            for (let i = 0; i < masterModel.count; i++) {
-                                                let mItem = masterModel.get(i)
-                                                if (window.stripFileScheme(mItem.folder) === path) {
-                                                    mItem.isFavorite = !mItem.isFavorite
-
-                                                    if (mItem.isFavorite) {
-                                                        if (!window.favorites.includes(path)) window.favorites.push(path)
-                                                    } else {
-                                                        let idx = window.favorites.indexOf(path)
-                                                        if (idx !== -1) window.favorites.splice(idx, 1)
+                                                        window.saveSettings();
+                                                        break;
                                                     }
+                                                }
+                                                model.isFavorite = !model.isFavorite;
+                                            }
+                                        }
 
-                                                    window.saveSettings()
-                                                    break
+                                        Text {
+                                            text: ""
+                                            color: Theme.border
+                                            font.pixelSize: 28
+                                            anchors.fill: parent
+                                            horizontalAlignment: Text.AlignHCenter
+                                            verticalAlignment: Text.AlignVCenter
+                                            opacity: model.isFavorite ? 1 : 0
+                                            Behavior on opacity {
+                                                NumberAnimation {
+                                                    duration: 300
+                                                    easing.type: Easing.BezierSpline
+                                                    easing.bezierCurve: [0.22, 1, 0.36, 1, 1, 1]
                                                 }
                                             }
-                                            model.isFavorite = !model.isFavorite
-                                            
+                                        }
+
+                                        Text {
+                                            text: "♥"
+                                            color: Theme.border
+                                            font.pixelSize: 28
+                                            anchors.fill: parent
+                                            horizontalAlignment: Text.AlignHCenter
+                                            verticalAlignment: Text.AlignVCenter
+                                            opacity: (!model.isFavorite && (model.isFavorite || favContainer.mouseOverFav)) ? 1 : 0
+                                            Behavior on opacity {
+                                                NumberAnimation {
+                                                    duration: 500
+                                                    easing.type: Easing.BezierSpline
+                                                    easing.bezierCurve: [0.22, 1, 0.36, 1, 1, 1]
+                                                }
+                                            }
                                         }
                                     }
+                                }
 
-                                    Text {
-                                        text: ""
-                                        color: Theme.border
-                                        font.pixelSize: 28
-                                        anchors.fill: parent
-                                        horizontalAlignment: Text.AlignHCenter
-                                        verticalAlignment: Text.AlignVCenter
-                                        opacity: model.isFavorite ? 1 : 0
-                                        Behavior on opacity { NumberAnimation { duration: 300; easing.type: Easing.BezierSpline; easing.bezierCurve: [0.22, 1, 0.36, 1, 1, 1] } }
+                                MouseArea {
+                                    id: scaleMouseArea
+                                    anchors.fill: scaleContainer
+                                    hoverEnabled: true
+                                    propagateComposedEvents: true
+                                    acceptedButtons: Qt.LeftButton
+                                    onEntered: window.anyHovered = true
+                                    onExited: window.anyHovered = false
+                                    onDoubleClicked: {
+                                        if (!(mouse.modifiers & Qt.ShiftModifier)) {
+                                            applyWallpaper(model);
+                                        }
                                     }
-
-                                    Text {
-                                        text: "♥"
-                                        color: Theme.border
-                                        font.pixelSize: 28
-                                        anchors.fill: parent
-                                        horizontalAlignment: Text.AlignHCenter
-                                        verticalAlignment: Text.AlignVCenter
-                                        opacity: (!model.isFavorite && (model.isFavorite || favContainer.mouseOverFav)) ? 1 : 0
-                                        Behavior on opacity { NumberAnimation { duration: 500; easing.type: Easing.BezierSpline; easing.bezierCurve: [0.22, 1, 0.36, 1, 1, 1] } }
+                                    onClicked: mouse => {
+                                        if (mouse.modifiers & Qt.ShiftModifier) {
+                                            let path = stripFileScheme(model.folder).replace(/\/$/, "");
+                                            let idx = window.playlist.indexOf(path);
+                                            if (idx === -1) {
+                                                window.playlist = [...window.playlist, path];
+                                                if (showPlaylist) {
+                                                    filterWallpapersAnimation();
+                                                }
+                                            } else {
+                                                window.playlist = window.playlist.filter((_, i) => i !== idx);
+                                                if (showPlaylist) {
+                                                    filterWallpapersAnimation();
+                                                }
+                                            }
+                                            if (window.playlist.length === 0) {
+                                                window.playlistActive = false;
+                                            }
+                                            saveSettings();
+                                        }
                                     }
                                 }
                             }
 
                             MouseArea {
-                                id: scaleMouseArea
-                                anchors.fill: scaleContainer
-                                hoverEnabled: true
+                                anchors.fill: parent
+                                acceptedButtons: Qt.NoButton
                                 propagateComposedEvents: true
-                                acceptedButtons: Qt.LeftButton
-                                onEntered: window.anyHovered = true
-                                onExited: window.anyHovered = false
-                                onDoubleClicked: {
-                                    if (!(mouse.modifiers & Qt.ShiftModifier)) {
-                                        applyWallpaper(model)
-                                    }
-                                }
-                                onClicked: (mouse) => {
-                                    if (mouse.modifiers & Qt.ShiftModifier) {
-                                        let path = stripFileScheme(model.folder).replace(/\/$/, "")
-                                        let idx = window.playlist.indexOf(path)
-                                        if (idx === -1) {
-                                            window.playlist = [...window.playlist, path]
-                                            if (showPlaylist) {filterWallpapersAnimation()}
-                                        } else {
-                                            window.playlist = window.playlist.filter((_, i) => i !== idx)
-                                            if (showPlaylist) {filterWallpapersAnimation()}
-                                        }
-                                        if (window.playlist.length === 0) {
-                                            window.playlistActive = false
-                                        }
-                                        saveSettings()
-                                    }
+                                onWheel: function (wheel) {
+                                    window.keyboardNavigation = false;
+                                    if (wheel.angleDelta.y > 0)
+                                        listView.currentIndex = Math.max(0, listView.currentIndex - 1);
+                                    else
+                                        listView.currentIndex = Math.min(listView.count - 1, listView.currentIndex + 1);
                                 }
                             }
-                        }
 
-                        MouseArea {
-                            anchors.fill: parent
-                            acceptedButtons: Qt.NoButton
-                            propagateComposedEvents: true
-                            onWheel: function(wheel) {
-                                window.keyboardNavigation = false 
-                                if (wheel.angleDelta.y > 0)
-                                    listView.currentIndex = Math.max(0, listView.currentIndex - 1)
-                                else
-                                    listView.currentIndex = Math.min(listView.count - 1, listView.currentIndex + 1)
-                            }
-                        }
-
-                            Keys.onTabPressed: (event) => {
+                            Keys.onTabPressed: event => {
                                 if (window.suggestions.length > 0) {
-
-                                    let selectedItem = ""
+                                    let selectedItem = "";
 
                                     if (suggestionList.hoverItem !== "") {
-                                        selectedItem = suggestionList.hoverItem
+                                        selectedItem = suggestionList.hoverItem;
                                     } else if (window.suggestionIndex >= 0) {
-                                        selectedItem = window.suggestions[window.suggestionIndex]
+                                        selectedItem = window.suggestions[window.suggestionIndex];
                                     }
 
                                     if (selectedItem !== "") {
-                                        acceptSuggestion(selectedItem)
+                                        acceptSuggestion(selectedItem);
                                     }
 
-                                    event.accepted = true
+                                    event.accepted = true;
                                 }
                             }
-                            Keys.onEscapePressed: (event) => {
+                            Keys.onEscapePressed: event => {
                                 if (window.showHelp) {
-                                    window.showHelp = false
-                                    window.suggestions = []
-                                    window.suggestionIndex = -1
-                                    listView.forceActiveFocus()
-                                    event.accepted = true
-                                    return
+                                    window.showHelp = false;
+                                    window.suggestions = [];
+                                    window.suggestionIndex = -1;
+                                    listView.forceActiveFocus();
+                                    event.accepted = true;
+                                    return;
                                 }
                                 if (window.suggestions.length > 0) {
-                                    window.suggestions = []
-                                    window.suggestionIndex = -1
-                                    event.accepted = true
-                                    return
+                                    window.suggestions = [];
+                                    window.suggestionIndex = -1;
+                                    event.accepted = true;
+                                    return;
                                 }
-                                Qt.quit()
+                                Qt.quit();
                             }
 
-                            Keys.onUpPressed: (event) => {
-    if (window.suggestions.length > 0) {
-        suggestionList.hoverItem = ""
-        suggestionList.hoverLocked = true
+                            Keys.onUpPressed: event => {
+                                if (window.suggestions.length > 0) {
+                                    suggestionList.hoverItem = "";
+                                    suggestionList.hoverLocked = true;
 
-        let newIndex = window.suggestionIndex
-        if (newIndex < 0)
-            newIndex = 0
+                                    let newIndex = window.suggestionIndex;
+                                    if (newIndex < 0)
+                                        newIndex = 0;
 
-        window.suggestionIndex = Math.max(0, newIndex - 1)
-        event.accepted = true
-    }
-}
-
-Keys.onDownPressed: (event) => {
-    if (window.suggestions.length > 0) {
-        suggestionList.hoverItem = ""
-        suggestionList.hoverLocked = true
-
-        let newIndex = window.suggestionIndex
-        if (newIndex < 0)
-            newIndex = 0
-
-        window.suggestionIndex = Math.min(window.suggestions.length - 1, newIndex + 1)
-        event.accepted = true
-    }
-}
-
-                            Keys.onLeftPressed: (event) => {
-                                window.keyboardNavigation = true
-                                listView.currentIndex = Math.max(0, listView.currentIndex - 1)
+                                    window.suggestionIndex = Math.max(0, newIndex - 1);
+                                    event.accepted = true;
+                                }
                             }
 
-                            Keys.onRightPressed: (event) => {
-                                window.keyboardNavigation = true
-                                listView.currentIndex = Math.min(listView.count - 1, listView.currentIndex + 1)
+                            Keys.onDownPressed: event => {
+                                if (window.suggestions.length > 0) {
+                                    suggestionList.hoverItem = "";
+                                    suggestionList.hoverLocked = true;
+
+                                    let newIndex = window.suggestionIndex;
+                                    if (newIndex < 0)
+                                        newIndex = 0;
+
+                                    window.suggestionIndex = Math.min(window.suggestions.length - 1, newIndex + 1);
+                                    event.accepted = true;
+                                }
                             }
 
-                            Keys.onReturnPressed: (event) => {
-                                if (window.showHelp) { window.showHelp = false; return }
+                            Keys.onLeftPressed: event => {
+                                window.keyboardNavigation = true;
+                                listView.currentIndex = Math.max(0, listView.currentIndex - 1);
+                            }
+
+                            Keys.onRightPressed: event => {
+                                window.keyboardNavigation = true;
+                                listView.currentIndex = Math.min(listView.count - 1, listView.currentIndex + 1);
+                            }
+
+                            Keys.onReturnPressed: event => {
+                                if (window.showHelp) {
+                                    window.showHelp = false;
+                                    return;
+                                }
                                 if (window.playlist.length > 0) {
-                                    window.playlistActive = !window.playlistActive
+                                    window.playlistActive = !window.playlistActive;
                                     if (window.playlistActive) {
-                                        window.playlistLastApplied = 0
+                                        window.playlistLastApplied = 0;
                                     }
-                                    saveSettings()
-                                    showStatus(window.playlistActive 
-                                        ? "Playlist started · " + window.playlist.length + " wallpapers · every " + window.playlistInterval + "m"
-                                        : "Playlist stopped")
-                                    return
+                                    saveSettings();
+                                    showStatus(window.playlistActive ? "Playlist started · " + window.playlist.length + " wallpapers · every " + window.playlistInterval + "m" : "Playlist stopped");
+                                    return;
                                 }
-                                applyWallpaper(getCurrentFilteredItem())
+                                applyWallpaper(getCurrentFilteredItem());
                             }
                         }
                     }
@@ -2106,13 +2163,19 @@ Keys.onDownPressed: (event) => {
                     border.width: 1
                     z: 10
 
-                    Behavior on opacity { NumberAnimation { duration: 300; easing.type:  Easing.BezierSpline; easing.bezierCurve: [0.22, 1, 0.36, 1, 1, 1] } }
+                    Behavior on opacity {
+                        NumberAnimation {
+                            duration: 300
+                            easing.type: Easing.BezierSpline
+                            easing.bezierCurve: [0.22, 1, 0.36, 1, 1, 1]
+                        }
+                    }
 
                     MouseArea {
                         anchors.fill: parent
-                        onWheel: (event) => event.accepted = true
+                        onWheel: event => event.accepted = true
                     }
-                    
+
                     Text {
                         id: helpTitle
                         anchors.top: parent.top
@@ -2122,7 +2185,7 @@ Keys.onDownPressed: (event) => {
                         color: Theme.text
                         font.pixelSize: 25
                         font.weight: Font.Medium
-                    }   
+                    }
 
                     Text {
                         id: helpFooter
@@ -2133,7 +2196,7 @@ Keys.onDownPressed: (event) => {
                         color: Theme.text
                         font.pixelSize: 12
                         opacity: 0.4
-                    }   
+                    }
 
                     ListView {
                         anchors.top: helpTitle.bottom
@@ -2153,36 +2216,126 @@ Keys.onDownPressed: (event) => {
                         spacing: 0
 
                         model: [
-                            { cmd: ":static          |  :s",   desc: "Toggle static wallpapers" },
-                            { cmd: ":dynamic         |  :d",   desc: "Toggle dynamic wallpapers" },
-                            { cmd: ":favorite        |  :f",   desc: "Toggle favorites filter" },
-                            { cmd: "Customizeable    |  :sus", desc: "Toggle Mature content filter" },
-                            { cmd: ":rename <name>   |  :rn ", desc: "Renames highlighted wallpaper" },
-                            { cmd: ":rename          |  :rn ", desc: "Removes the current rename." },
-                            { cmd: ":gif             |    ",   desc: "Toggle animated gif preview" },
-                            { cmd: ":playlist<mins>  |  :pl",  desc: "Set playlist interval in minutes" },
-                            { cmd: ":playlist        |  :pl",  desc: "Toggle playlist filter" },
-                            { cmd: ":playlistshuffle |  :pls", desc: "Makes playlist random" },
-                            { cmd: "Shift+Click      |    ",   desc: "Add/remove wallpaper from playlist" },
-                            { cmd: "Shift+Enter      |    ",   desc: "Start/stop playlist when items added" },
-                            { cmd: ":random          |  :r",   desc: "Apply a random dynamic wallpaper" },
-                            { cmd: ":randomstatic    |  :rs",  desc: "Apply a random static wallpaper" },
-                            { cmd: ":randomfav       |  :rf",  desc: "Apply a random favorited wallpaper" },
-                            { cmd: ":export <filter> |  :ex",  desc: "Export filtered wallpaper as steam URLs" },
-                            { cmd: ":setfolder       |  :sf",  desc: "Set dynamic wallpapers folder" },
-                            { cmd: ":setstatic       |  :ss",  desc: "Set static wallpapers folder" },
-                            { cmd: ":setthumb        |  :st",  desc: "Set thumbnail cache folder" },
-                            { cmd: ":setffmpeg       |     ",  desc: "Set ffmpeg path" },
-                            { cmd: ":clearcache      |  :cc",  desc: "Clear thumbnail cache and regenerate" },
-                            { cmd: ":reload          |  :rl",  desc: "Reload wallpaper folders" },
-                            { cmd: ":open            |  :o ",  desc: "Open workshop for highlighted wallpaper" },
-                            { cmd: ":id              |     ",  desc: "Copy highlighted wallpapers id" },
-                            { cmd: ":tag <name>      |     ",  desc: "Filter by tag" },
-                            { cmd: ":tag             |     ",  desc: "Clear tag filter" },
-                            { cmd: ":sort            |     ",  desc: "Sorts wallpapers" },
-                            { cmd: "Sort Arguments   |", desc: "default, name, recent, favorite, random"},
-                            { cmd: "Sort Shortcuts   |", desc: "d,       n,    r,      f,"},
-                            { cmd: ":help            |   :h",  desc: "Show this help" }
+                            {
+                                cmd: ":static          |  :s",
+                                desc: "Toggle static wallpapers"
+                            },
+                            {
+                                cmd: ":dynamic         |  :d",
+                                desc: "Toggle dynamic wallpapers"
+                            },
+                            {
+                                cmd: ":favorite        |  :f",
+                                desc: "Toggle favorites filter"
+                            },
+                            {
+                                cmd: "Customizeable    |  :sus",
+                                desc: "Toggle Mature content filter"
+                            },
+                            {
+                                cmd: ":rename <name>   |  :rn ",
+                                desc: "Renames highlighted wallpaper"
+                            },
+                            {
+                                cmd: ":rename          |  :rn ",
+                                desc: "Removes the current rename."
+                            },
+                            {
+                                cmd: ":gif             |    ",
+                                desc: "Toggle animated gif preview"
+                            },
+                            {
+                                cmd: ":playlist<mins>  |  :pl",
+                                desc: "Set playlist interval in minutes"
+                            },
+                            {
+                                cmd: ":playlist        |  :pl",
+                                desc: "Toggle playlist filter"
+                            },
+                            {
+                                cmd: ":playlistshuffle |  :pls",
+                                desc: "Makes playlist random"
+                            },
+                            {
+                                cmd: "Shift+Click      |    ",
+                                desc: "Add/remove wallpaper from playlist"
+                            },
+                            {
+                                cmd: "Shift+Enter      |    ",
+                                desc: "Start/stop playlist when items added"
+                            },
+                            {
+                                cmd: ":random          |  :r",
+                                desc: "Apply a random dynamic wallpaper"
+                            },
+                            {
+                                cmd: ":randomstatic    |  :rs",
+                                desc: "Apply a random static wallpaper"
+                            },
+                            {
+                                cmd: ":randomfav       |  :rf",
+                                desc: "Apply a random favorited wallpaper"
+                            },
+                            {
+                                cmd: ":export <filter> |  :ex",
+                                desc: "Export filtered wallpaper as steam URLs"
+                            },
+                            {
+                                cmd: ":setfolder       |  :sf",
+                                desc: "Set dynamic wallpapers folder"
+                            },
+                            {
+                                cmd: ":setstatic       |  :ss",
+                                desc: "Set static wallpapers folder"
+                            },
+                            {
+                                cmd: ":setthumb        |  :st",
+                                desc: "Set thumbnail cache folder"
+                            },
+                            {
+                                cmd: ":setffmpeg       |     ",
+                                desc: "Set ffmpeg path"
+                            },
+                            {
+                                cmd: ":clearcache      |  :cc",
+                                desc: "Clear thumbnail cache and regenerate"
+                            },
+                            {
+                                cmd: ":reload          |  :rl",
+                                desc: "Reload wallpaper folders"
+                            },
+                            {
+                                cmd: ":open            |  :o ",
+                                desc: "Open workshop for highlighted wallpaper"
+                            },
+                            {
+                                cmd: ":id              |     ",
+                                desc: "Copy highlighted wallpapers id"
+                            },
+                            {
+                                cmd: ":tag <name>      |     ",
+                                desc: "Filter by tag"
+                            },
+                            {
+                                cmd: ":tag             |     ",
+                                desc: "Clear tag filter"
+                            },
+                            {
+                                cmd: ":sort            |     ",
+                                desc: "Sorts wallpapers"
+                            },
+                            {
+                                cmd: "Sort Arguments   |",
+                                desc: "default, name, recent, favorite, random"
+                            },
+                            {
+                                cmd: "Sort Shortcuts   |",
+                                desc: "d,       n,    r,      f,"
+                            },
+                            {
+                                cmd: ":help            |   :h",
+                                desc: "Show this help"
+                            }
                         ]
 
                         delegate: Rectangle {
@@ -2190,9 +2343,7 @@ Keys.onDownPressed: (event) => {
                             height: 36
                             radius: 6
 
-                            color: index % 2 === 0
-                                ? "transparent"
-                                : Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, 0.04)
+                            color: index % 2 === 0 ? "transparent" : Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, 0.04)
 
                             Row {
                                 anchors.fill: parent
