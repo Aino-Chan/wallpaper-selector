@@ -756,6 +756,7 @@ Scope {
                     if (cmd.startsWith(":width ")) {
                         let width = parseInt(rawCmd.replace(/^:width\s+/i, "").trim());
                         if (!isNaN(width) && width > 0) {
+                            width = Math.max(100, Math.min(1000, width));
                             window.cardWidth = width;
                             saveSettings();
                             filterWallpapersAnimation();
@@ -771,6 +772,7 @@ Scope {
                     if (cmd.startsWith(":height ")) {
                         let height = parseInt(rawCmd.replace(/^:height\s+/i, "").trim());
                         if (!isNaN(height) && height > 0) {
+                            height = Math.max(100, Math.min(600, height));
                             window.cardHeight = height;
                             saveSettings();
                             filterWallpapersAnimation();
@@ -1493,8 +1495,43 @@ Scope {
 
             Rectangle {
                 id: panel
-                width: screen.width / 1.163636364
-                height: screen.height / 2.4
+
+                property real widthScale: screen.width / 1920
+                property real heightScale: screen.height / 1200
+
+                property real panelWidthMultiplier: 8.25 * widthScale
+                property real panelHeightMultiplier: 1.3889 * heightScale
+                property real panelMinWidth: 825 * widthScale
+                property real panelMinHeight: 200 * heightScale
+                property real panelMaxWidth: 1650 * widthScale
+                property real panelMaxHeight: 800 * heightScale
+
+                width: Math.max(
+                    panelMinWidth,
+                    Math.min(panelMaxWidth, cardWidth * panelWidthMultiplier)
+                )
+
+                height: Math.max(
+                    panelMinHeight,
+                    Math.min(panelMaxHeight, cardHeight * panelHeightMultiplier)
+                )
+
+                Behavior on width {
+                        enabled: !isInitialLoad
+                        NumberAnimation {
+                            duration: 300
+                            easing.type: Easing.BezierSpline
+                            easing.bezierCurve: [0.22, 1, 0.36, 1, 1, 1]
+                        }
+                    }
+                Behavior on height {
+                        enabled: !isInitialLoad
+                        NumberAnimation {
+                            duration: 300
+                            easing.type: Easing.BezierSpline
+                            easing.bezierCurve: [0.22, 1, 0.36, 1, 1, 1]
+                        }
+                    }
 
                 radius: 20
                 color: Theme.background
