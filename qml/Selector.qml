@@ -1493,8 +1493,9 @@ Scope {
 
             Rectangle {
                 id: panel
-                width: 1650
-                height: 500
+                width: screen.width / 1.163636364
+                height: screen.height / 2.4
+
                 radius: 20
                 color: Theme.background
                 border.color: Theme.border
@@ -1857,6 +1858,8 @@ Scope {
 
                             delegate: Item {
                                 id: delegateRoot
+                                anchors.verticalCenter: parent ? parent.verticalCenter : undefined
+                                anchors.verticalCenterOffset: 20
                                 property real baseWidth: window.cardWidth
                                 property real baseHeight: window.cardHeight
                                 property real activeScale: window.cardScale
@@ -2240,7 +2243,7 @@ Scope {
                                     id: scaleMouseArea
                                     anchors.centerIn: delegateRoot
                                     width: active ? cardScale * baseWidth : baseWidth
-                                    height: active ? cardScale * baseHeight : baseWidth
+                                    height: active ? cardScale * baseHeight : baseHeight
                                     hoverEnabled: true
                                     propagateComposedEvents: true
                                     acceptedButtons: Qt.LeftButton
@@ -2281,19 +2284,14 @@ Scope {
                                             saveSettings();
                                         }
                                     }
-                                }
-                            }
 
-                            MouseArea {
-                                anchors.fill: parent
-                                acceptedButtons: Qt.NoButton
-                                propagateComposedEvents: true
-                                onWheel: function (wheel) {
-                                    window.keyboardNavigation = false;
-                                    if (wheel.angleDelta.y > 0)
-                                        listView.currentIndex = Math.max(0, listView.currentIndex - 1);
-                                    else
-                                        listView.currentIndex = Math.min(listView.count - 1, listView.currentIndex + 1);
+                                    onWheel: function (wheel) {
+                                        window.keyboardNavigation = false;
+                                        if (wheel.angleDelta.y > 0)
+                                            listView.currentIndex = Math.max(0, listView.currentIndex - 1);
+                                        else
+                                            listView.currentIndex = Math.min(listView.count - 1, listView.currentIndex + 1);
+                                    }
                                 }
                             }
 
