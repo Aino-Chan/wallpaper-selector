@@ -20,7 +20,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 heading "Checking dependencies..."
 
 MISSING=()
-for dep in quickshell ffmpeg swww jq; do
+for dep in quickshell ffmpeg jq; do
     if command -v "$dep" &>/dev/null; then
         info "$dep found"
     else
@@ -28,6 +28,13 @@ for dep in quickshell ffmpeg swww jq; do
         MISSING+=("$dep")
     fi
 done
+
+if command -v swww &>/dev/null || command -v awww &>/dev/null; then
+    info "Wallpaper backend found"
+else
+    warn "Neither swww nor awww found"
+    MISSING+=("swww/awww")
+fi
 
 if command -v wl-copy &>/dev/null; then
     info "wl-clipboard found"
