@@ -23,11 +23,7 @@ QML_IMPORT_STAGE="$SCRIPT_DIR/qml/qml"
 heading "Checking dependencies..."
 
 MISSING=()
-<<<<<<< HEAD
-for dep in quickshell ffmpeg jq; do
-=======
 for dep in quickshell ffmpeg awww jq cmake make c++; do
->>>>>>> c8feba8 (Added steam support parallax view and minor bug fixes (might introduce some bugs))
     if command -v "$dep" &>/dev/null; then
         info "$dep found"
     else
