@@ -15,12 +15,19 @@ heading() { echo -e "\n${BOLD}$1${NC}"; }
 BIN_DIR="$HOME/.local/bin"
 CONFIG_DIR="$HOME/.config/quickshell/wallpaper"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SERVICE_SOURCE_DIR="$SCRIPT_DIR/Steam-Workshop-Service"
+SERVICE_BUILD_DIR="$SCRIPT_DIR/.build/Steam-Workshop-Service"
+QML_IMPORT_STAGE="$SCRIPT_DIR/qml/qml"
 
 
 heading "Checking dependencies..."
 
 MISSING=()
+<<<<<<< HEAD
 for dep in quickshell ffmpeg jq; do
+=======
+for dep in quickshell ffmpeg awww jq cmake make c++; do
+>>>>>>> c8feba8 (Added steam support parallax view and minor bug fixes (might introduce some bugs))
     if command -v "$dep" &>/dev/null; then
         info "$dep found"
     else
@@ -83,10 +90,78 @@ read -rp "FPS: " WALLPAPER_FPS
 WALLPAPER_FPS="${WALLPAPER_FPS:-60}"
 
 
+heading "Building Steam Workshop service plugin..."
+
+QMLDIR_FILE="$SERVICE_SOURCE_DIR/qmldir"
+
+if [[ ! -f "$QMLDIR_FILE" ]]; then
+    error "Missing QML module descriptor: $QMLDIR_FILE"
+    exit 1
+fi
+
+MODULE_URI="$(
+    awk '$1 == "module" { print $2; exit }' "$QMLDIR_FILE"
+)"
+
+if [[ -z "$MODULE_URI" ]]; then
+    error "No 'module' declaration found in $QMLDIR_FILE"
+    exit 1
+fi
+
+MODULE_PATH="$(printf '%s' "$MODULE_URI" | tr '.' '/')"
+MODULE_STAGE_DIR="$QML_IMPORT_STAGE/$MODULE_PATH"
+
+info "Building QML module: $MODULE_URI"
+
+cmake \
+    -S "$SERVICE_SOURCE_DIR" \
+    -B "$SERVICE_BUILD_DIR" \
+    -DCMAKE_BUILD_TYPE=Release
+
+cmake \
+    --build "$SERVICE_BUILD_DIR" \
+    --parallel
+
+rm -rf "$MODULE_STAGE_DIR"
+mkdir -p "$MODULE_STAGE_DIR"
+
+install -m644 \
+    "$QMLDIR_FILE" \
+    "$MODULE_STAGE_DIR/qmldir"
+
+mapfile -d '' SERVICE_LIBRARIES < <(
+    find "$SERVICE_BUILD_DIR" \
+        -type f \
+        -name '*.so' \
+        -print0
+)
+
+if [[ ${#SERVICE_LIBRARIES[@]} -eq 0 ]]; then
+    error "The build produced no shared library"
+    exit 1
+fi
+
+for library in "${SERVICE_LIBRARIES[@]}"; do
+    install -m755 "$library" "$MODULE_STAGE_DIR/"
+    info "Staged $(basename "$library")"
+done
+
+while IFS= read -r -d '' typeinfo; do
+    install -m644 "$typeinfo" "$MODULE_STAGE_DIR/"
+done < <(
+    find "$SERVICE_BUILD_DIR" \
+        -type f \
+        -name '*.qmltypes' \
+        -print0
+)
+
+info "Plugin staged at $MODULE_STAGE_DIR"
+
+
 heading "Installing wallpaper selector..."
 
 mkdir -p "$CONFIG_DIR"
-cp -r "$SCRIPT_DIR/qml/"* "$CONFIG_DIR/"
+cp -a "$SCRIPT_DIR/qml/." "$CONFIG_DIR/"
 info "QML files installed to $CONFIG_DIR"
 
 
@@ -136,6 +211,7 @@ info "Playlist daemon installed to $BIN_DIR/wallpaper-playlist.sh"
 
 cat > "$BIN_DIR/wallpaper-selector.sh" << SCRIPT
 #!/usr/bin/env bash
+
 export PATH="\$HOME/.local/bin:\$PATH"
 export XDG_RUNTIME_DIR="/run/user/\$(id -u)"
 
@@ -143,7 +219,8 @@ $(if [[ -n "$WAL_CMD" && "$WAL_CMD" == *venv* ]]; then
     echo "source \"$HOME/.local/venvs/pywal/bin/activate\""
 fi)
 
-QML_XHR_ALLOW_FILE_READ=1 quickshell -p "$CONFIG_DIR"
+cd "$CONFIG_DIR"
+QML_XHR_ALLOW_FILE_READ=1 exec quickshell -p .
 SCRIPT
 
 chmod +x \

@@ -25,7 +25,7 @@ Scope {
             WlrLayershell.keyboardFocus: WlrKeyboardFocus.Exclusive
             color: "transparent"
             implicitWidth: screen.width
-            implicitHeight: screen.height
+            implicitHeight: screen.height + 52 * (window.screen.height / 1080)
             MouseArea {
                 anchors.fill: parent
 
@@ -33,7 +33,7 @@ Scope {
                     var p = panel.mapFromItem(this, mouse.x, mouse.y);
 
                     if (p.x < 0 || p.y < 0 || p.x > panel.width || p.y > panel.height) {
-                        Qt.quit();
+                        doQuit()
                     }
                 }
             }
@@ -94,6 +94,13 @@ Scope {
             property real cardHeight: 360
             property real cardScale: 1.2
             property real cardSpacing: 20
+            property bool workshopMode: false
+            property bool showWorkshopAuth: false
+            property string workshopSearchText: ""
+            property string workshopSelectedId: ""
+            property string workshopSortMode: "popular"
+            property string workshopRequiredTag: ""
+            property bool isQuitting: false
             
             FileView {
                 id: pathCompleteFileView
@@ -154,8 +161,32 @@ Scope {
                 }
             }
 
+            Process {
+                id: hardKillProcess
+            }
+
             ListModel {
                 id: masterModel
+            }
+
+            SteamWorkshopService {
+                id: steamWorkshop
+
+                weDir: window.baseFolder
+                showMatureContent: window.showMatureContent
+                selectedWorkshopId: window.workshopSelectedId
+                sortMode: window.workshopSortMode
+                requiredTag: window.workshopRequiredTag
+
+                onSelectionRequested: function(index, center) {
+                    if (index < 0 || index >= listView.count)
+                        return
+
+                    listView.currentIndex = index
+
+                    if (center)
+                        listView.positionViewAtIndex(index, ListView.Center)
+                }
             }
 
             FileView {
@@ -183,6 +214,23 @@ Scope {
                 onTriggered: window.statusMessage = ""
             }
 
+            Timer {
+                id: saveDebounceTimer
+                interval: 400
+                repeat: false
+                onTriggered: saveSettings()
+            }
+
+            Timer {
+                id: killTimer
+                interval: 100
+                repeat: false
+                onTriggered: {
+                    hardKillProcess.command = ["/bin/bash", "-c", "pkill -f 'quickshell -c wallpaper'"]
+                    hardKillProcess.startDetached()
+                }
+            }
+
             SequentialAnimation {
                 id: filterAnimation
 
@@ -198,7 +246,11 @@ Scope {
                 ScriptAction {
                     script: {
                         listView.interactive = false;
-                        filterWallpapers();
+                        if (window.workshopMode) {
+                            steamWorkshop.filterWorkshopItems();
+                        } else {
+                            filterWallpapers();
+                        }
                     }
                 }
 
@@ -214,19 +266,40 @@ Scope {
                 ScriptAction {
                     script: {
                         listView.interactive = true;
-                        if (window.pendingScrollPath !== "") {
-                            let target = window.pendingScrollPath;
-                            window.pendingScrollPath = "";
+                        if (!window.workshopMode && window.pendingScrollPath !== "") {
+                            let target = window.pendingScrollPath
+                            window.pendingScrollPath = ""
+
                             for (let i = 0; i < filteredModel.count; i++) {
                                 if (stripFileScheme(filteredModel.get(i).folder).replace(/\/$/, "") === target) {
-                                    listView.currentIndex = i;
-                                    Qt.callLater(() => listView.positionViewAtIndex(i, ListView.Center));
-                                    break;
+                                    listView.currentIndex = i
+                                    Qt.callLater(() => listView.positionViewAtIndex(i, ListView.Center))
+                                    break
                                 }
                             }
+                        } else if (window.workshopMode) {
+                            window.pendingScrollPath = ""
                         }
                     }
                 }
+            }
+
+            function doQuit() {
+                if (window.isQuitting) return
+                window.isQuitting = true
+                filterAnimation.stop()
+                saveDebounceTimer.stop()
+                saveSettings()
+                killTimer.start()
+            }
+
+            function openWorkshopInSteam(workshopId) {
+                let id = String(workshopId || "").trim()
+                if (!/^\d+$/.test(id))
+                    return
+
+                workshopidProcess.command = ["/bin/bash", "-c", `xdg-open "steam://url/CommunityFilePage/${id}"`]
+                workshopidProcess.startDetached()
             }
 
             function shQuote(s) {
@@ -250,6 +323,83 @@ Scope {
                     hoveredIndex = -1
             }
 
+            function blockWorkshopOnlyCommand(message) {
+                if (!window.workshopMode)
+                    return false;
+
+                showStatus(message || "This command is unavailable in workshop mode");
+                window.suppressTextHandler = true;
+                searchInput.text = "";
+                window.suppressTextHandler = false;
+                searchDebounceTimer.stop();
+                listView.forceActiveFocus();
+                return true;
+            }
+
+            function formatWorkshopBytes(bytes) {
+                let n = Number(bytes)
+
+                if (!Number.isFinite(n) || n <= 0)
+                    return "Unknown"
+
+                let units = ["B", "KB", "MB", "GB", "TB"]
+                let i = 0
+
+                while (n >= 1024 && i < units.length - 1) {
+                    n /= 1024
+                    i++
+                }
+
+                if (i === 0)
+                    return Math.round(n) + " B"
+                if (n >= 100)
+                    return Math.round(n) + " " + units[i]
+                if (n >= 10)
+                    return n.toFixed(1) + " " + units[i]
+                return n.toFixed(2) + " " + units[i]
+            }
+
+            function formatInt(n) {
+                let value = Number(n)
+
+                if (!Number.isFinite(value) || value <= 0)
+                    return "0"
+
+                value = Math.floor(value)
+                return String(value).replace(/\B(?=(\d{3})+(?!\d))/g, ",")
+            }
+
+            function resetNavigationState() {
+                window.anyHovered = false
+                window.keyboardNavigation = true
+                window.hoveredIndex = -1
+                window.previousHoveredIndex = -1
+                window.previousCurrentIndex = -1
+                window.targetIndexTracker = 0
+                listView.currentIndex = -1
+            }
+
+            function resetCommandModeState() {
+                window.wasInCommandMode = false
+                window.suggestions = []
+                window.suggestionIndex = -1
+                searchDebounceTimer.stop()
+            }
+
+            function rememberLocalSelectionForFilter() {
+                if (window.workshopMode)
+                    return
+
+                let item = getCurrentFilteredItem()
+                if (!item || !item.folder)
+                    return
+
+                let path = stripFileScheme(item.folder).replace(/\/$/, "")
+                window.pendingScrollPath = path
+                window.preCommandPath = path
+                window.preCommandIndex = listView.currentIndex
+            }
+
             function updateSuggestions(input) {
                 let raw = input.trim();
                 let lower = raw.toLowerCase();
@@ -258,6 +408,71 @@ Scope {
 
                 if (raw === "")
                     return;
+
+                let matureSuggestion = ":" + toggleMatureContentKey;
+
+                if (window.workshopMode) {
+                    if (lower === ":sort" || lower.startsWith(":sort ")) {
+                        let sortCommands = [
+                            ":sort popular",
+                            ":sort day",
+                            ":sort week",
+                            ":sort rated",
+                            ":sort votes",
+                            ":sort recent",
+                            ":sort approved",
+                            ":sort text"
+                        ];
+
+                        suggestions = sortCommands.filter(function(command) {
+                            return command.startsWith(lower) && command !== lower;
+                        });
+
+                        suggestionIndex = suggestions.length > 0 ? 0 : -1;
+                        hoverItem = "";
+                        return;
+                    }
+
+                    if (lower === ":tag" || lower.startsWith(":tag ")) {
+                        let partial = lower.slice(4).trim();
+                        let workshopTags = getUniqueWorkshopTags();
+
+                        suggestions = workshopTags
+                            .filter(function(tag) {
+                                return tag.startsWith(partial) && tag !== partial;
+                            })
+                            .map(function(tag) {
+                                return ":tag " + tag;
+                            });
+
+                        suggestionIndex = suggestions.length > 0 ? 0 : -1;
+                        hoverItem = "";
+                        return;
+                    }
+
+                    if (raw.startsWith(":") && !raw.includes(" ")) {
+                        let commands = [
+                            matureSuggestion,
+                            ":workshop",
+                            ":sort",
+                            ":tag",
+                            ":width",
+                            ":height",
+                            ":scale",
+                            ":spacing",
+                            ":help"
+                        ];
+
+                        suggestions = commands.filter(function(command) {
+                            return command.startsWith(lower) && command !== lower;
+                        });
+
+                        suggestionIndex = suggestions.length > 0 ? 0 : -1;
+                    }
+
+                    return;
+                }
+
                 if (lower.startsWith(":tag")) {
                     let partial = lower.replace(":tag", "").trim();
                     let allTags = getUniqueTags();
@@ -268,8 +483,16 @@ Scope {
                 }
 
                 if (raw.startsWith(":") && !raw.includes(" ")) {
-                    let matureSuggestion = ":" + toggleMatureContentKey;
-                    let commands = [":static", ":dynamic", ":favorite", matureSuggestion, ":gif", ":rename", ":playlist", ":playlistshuffle", ":playlist clear", ":width", ":height", ":spacing", ":scale", ":random", ":randomstatic", ":randomfav", ":export", ":setfolder", ":setstatic", ":setthumb", ":setffmpeg", ":clearcache", ":reload", ":tag", ":id", ":open", ":sort default", ":sort name", ":sort recent", ":sort favorite", ":sort random", ":help"];
+                    let commands = [
+                        ":static", ":dynamic", ":favorite", matureSuggestion, ":workshop", ":gif",
+                        ":rename", ":playlist", ":playlistshuffle", ":playlist clear",
+                        ":width", ":height", ":spacing", ":scale",
+                        ":random", ":randomstatic", ":randomfav",
+                        ":export", ":setfolder", ":setstatic", ":setthumb", ":setffmpeg",
+                        ":clearcache", ":reload", ":tag", ":id", ":open",
+                        ":sort default", ":sort name", ":sort recent", ":sort favorite", ":sort random",
+                        ":help"
+                    ];
                     suggestions = commands.filter(c => c.startsWith(lower) && c !== lower);
                     suggestionIndex = suggestions.length > 0 ? 0 : -1;
                     return;
@@ -334,6 +557,30 @@ Scope {
                         arr.forEach(t => tags.add(t));
                     } catch (e) {}
                 }
+                return Array.from(tags).sort();
+            }
+
+            function getUniqueWorkshopTags() {
+                let tags = new Set();
+                let model = steamWorkshop.workshopMasterModel;
+
+                for (let i = 0; i < model.count; ++i) {
+                    let rawTags = model.get(i).tags;
+
+                    try {
+                        let parsedTags = JSON.parse(rawTags || "[]");
+
+                        parsedTags.forEach(function(tag) {
+                            let normalized = String(tag || "").trim().toLowerCase();
+
+                            if (normalized !== "")
+                                tags.add(normalized);
+                        });
+                    } catch (error) {
+                        console.warn("Invalid Workshop tags:", error);
+                    }
+                }
+
                 return Array.from(tags).sort();
             }
 
@@ -508,6 +755,10 @@ Scope {
                         window.renamedTitles = json.renamedTitles || {};
                         window.favorites = json.favorites || [];
                         window.usageMap = json.usageMap || {};
+                        window.workshopSearchText = json.workshopSearchText || "";
+                        window.workshopSelectedId = json.workshopSelectedId || "";
+                        window.workshopSortMode = json.workshopSortMode || "popular";
+                        window.workshopRequiredTag = json.workshopRequiredTag || "";
                     } catch (e) {
                         console.warn("Failed to parse settings:", e);
                         window.showMatureContent = false;
@@ -533,6 +784,10 @@ Scope {
                         window.staticWallpaperFolder = window.defaultStaticWallpaperFolder;
                         window.thumbFolder = window.defaultThumbFolder;
                         window.ffmpegPath = "/usr/bin/ffmpeg";
+                        window.workshopSearchText = "";
+                        window.workshopSelectedId = "";
+                        window.workshopSortMode = "popular";
+                        window.workshopRequiredTag = "";
                     }
                     if (callback)
                         callback();
@@ -571,7 +826,11 @@ Scope {
                     filterTag: window.filterTag,
                     renamedTitles: window.renamedTitles,
                     favorites: window.favorites,
-                    usageMap: window.usageMap
+                    usageMap: window.usageMap,
+                    workshopSearchText: window.workshopSearchText,
+                    workshopSelectedId: window.workshopSelectedId,
+                    workshopSortMode: window.workshopSortMode,
+                    workshopRequiredTag: window.workshopRequiredTag
                 });
 
                 writeProcess.command = [
@@ -587,8 +846,6 @@ Scope {
                 window.hoveredIndex = -1
                 window.previousHoveredIndex = -1
                 window.previousCurrentIndex = -1
-                if (window.keyboardNavigation)
-                window.keyboardNavigation = true
                 masterModel.clear();
                 filteredModel.clear();
                 window.validThumbs.clear();
@@ -597,6 +854,11 @@ Scope {
             }
 
             function getFilteredCandidates() {
+
+                if (window.workshopMode) {
+                    return steamWorkshop.workshopFilteredModel;
+                }
+
                 let candidates = [];
                 for (let i = 0; i < masterModel.count; i++) {
                     let item = masterModel.get(i);
@@ -619,278 +881,359 @@ Scope {
             Shortcut {
                 sequences: ["Return", "Enter"]
                 onActivated: {
-                    window.suggestions = [];
-                    window.suggestionIndex = -1;
+                    window.suggestions = []
+                    window.suggestionIndex = -1
                     if (window.showHelp) {
-                        window.showHelp = false;
-                        return;
+                        window.showHelp = false
+                        return
                     }
-                    let rawCmd = searchInput.text.trim();
-                    let cmd = rawCmd.toLowerCase();
-                    let expectedPrefix = ":";
-                    let matureCmd = expectedPrefix + window.toggleMatureContentKey.toLowerCase();
+
+                    let rawCmd = searchInput.text.trim()
+                    let cmd = rawCmd.toLowerCase()
+
+                    if (window.workshopMode && listView.currentIndex >= 0 && !cmd.startsWith(":")) {
+                        let item = steamWorkshop.workshopFilteredModel.get(listView.currentIndex)
+                        if (item && item.id)
+                            window.openWorkshopInSteam(item.id)
+                        return
+                    }
+
+                    let expectedPrefix = ":"
+                    let matureCmd = expectedPrefix + window.toggleMatureContentKey.toLowerCase()
 
                     if (cmd === ":help" || cmd === ":h") {
-                        window.showHelp = true;
-                        filterWallpapersAnimation();
-                        window.suppressTextHandler = true;
-                        searchInput.text = "";
-                        window.suppressTextHandler = false;
-                        searchDebounceTimer.stop();
-                        listView.forceActiveFocus();
-                        return;
+                        window.showHelp = true
+                        filterWallpapersAnimation()
+                        window.suppressTextHandler = true
+                        searchInput.text = ""
+                        window.suppressTextHandler = false
+                        searchDebounceTimer.stop()
+                        listView.forceActiveFocus()
+                        return
                     }
 
                     if (cmd.startsWith(":setffmpeg ")) {
-                        let newPath = rawCmd.replace(/^:setffmpeg\s+/i, "").trim();
-                        let fileName = newPath.split("/").pop();
-                        let badChars = /[\n\r\t"'`]/.test(newPath);
+                        if (blockWorkshopOnlyCommand("Unavailable in workshop mode"))
+                            return
+                        let newPath = rawCmd.replace(/^:setffmpeg\s+/i, "").trim()
+                        let fileName = newPath.split("/").pop()
+                        let badChars = /[\n\r\t"'`]/.test(newPath)
 
                         if (newPath === "" || !newPath.startsWith("/") || fileName !== "ffmpeg" || badChars) {
-                            showStatus("Error! ffmpeg path must be a clean absolute path ending in /ffmpeg");
-                            window.suppressTextHandler = true;
-                            searchInput.text = "";
-                            window.suppressTextHandler = false;
-                            searchDebounceTimer.stop();
-                            listView.forceActiveFocus();
-                            return;
+                            showStatus("Error! ffmpeg path must be a clean absolute path ending in /ffmpeg")
+                            window.suppressTextHandler = true
+                            searchInput.text = ""
+                            window.suppressTextHandler = false
+                            searchDebounceTimer.stop()
+                            listView.forceActiveFocus()
+                            return
                         }
 
-                        window.ffmpegPath = newPath;
-                        saveSettings();
-                        filterWallpapersAnimation();
-                        showStatus("Set ffmpeg path as: " + newPath);
+                        window.ffmpegPath = newPath
+                        saveSettings()
+                        filterWallpapersAnimation()
+                        showStatus("Set ffmpeg path as: " + newPath)
 
-                        window.suppressTextHandler = true;
-                        searchInput.text = "";
-                        window.suppressTextHandler = false;
-                        searchDebounceTimer.stop();
-                        listView.forceActiveFocus();
-                        return;
+                        window.suppressTextHandler = true
+                        searchInput.text = ""
+                        window.suppressTextHandler = false
+                        searchDebounceTimer.stop()
+                        listView.forceActiveFocus()
+                        return
                     }
 
                     if (cmd.startsWith(":rename") || cmd.startsWith(":rn")) {
-                        let item = window.preCommandPath !== "" ? window.preCommandPath : (getCurrentFilteredItem() ? stripFileScheme(getCurrentFilteredItem().folder).replace(/\/$/, "") : "");
+                        if (blockWorkshopOnlyCommand("Unavailable in workshop mode"))
+                            return
+                        let item = window.preCommandPath !== "" ? window.preCommandPath : (getCurrentFilteredItem() ? stripFileScheme(getCurrentFilteredItem().folder).replace(/\/$/, "") : "")
                         if (item !== "") {
-                            let newName = rawCmd.replace(/^:(rename|rn)\s*/i, "").trim();
+                            let newName = rawCmd.replace(/^:(rename|rn)\s*/i, "").trim()
                             if (newName === "") {
-                                delete window.renamedTitles[item];
-                                window.renamedTitles = Object.assign({}, window.renamedTitles);
+                                delete window.renamedTitles[item]
+                                window.renamedTitles = Object.assign({}, window.renamedTitles)
                             } else {
-                                window.renamedTitles[item] = newName;
-                                window.renamedTitles = Object.assign({}, window.renamedTitles);
+                                window.renamedTitles[item] = newName
+                                window.renamedTitles = Object.assign({}, window.renamedTitles)
                             }
                             for (let i = 0; i < masterModel.count; i++) {
-                                let mItem = masterModel.get(i);
+                                let mItem = masterModel.get(i)
                                 if (stripFileScheme(mItem.folder).replace(/\/$/, "") === item) {
                                     if (newName === "") {
-                                        masterModel.setProperty(i, "title", mItem.originalTitle || item.split("/").pop());
+                                        masterModel.setProperty(i, "title", mItem.originalTitle || item.split("/").pop())
                                     } else {
-                                        masterModel.setProperty(i, "title", newName);
+                                        masterModel.setProperty(i, "title", newName)
                                     }
-                                    break;
+                                    break
                                 }
                             }
-                            saveSettings();
-                            filterWallpapersAnimation();
-                            showStatus(newName === "" ? "Name cleared" : "Renamed to: " + newName);
+                            saveSettings()
+                            filterWallpapersAnimation()
+                            showStatus(newName === "" ? "Name cleared" : "Renamed to: " + newName)
                         }
-                        window.suppressTextHandler = true;
-                        searchInput.text = "";
-                        window.suppressTextHandler = false;
-                        listView.forceActiveFocus();
-                        return;
+                        window.suppressTextHandler = true
+                        searchInput.text = ""
+                        window.suppressTextHandler = false
+                        listView.forceActiveFocus()
+                        return
                     }
 
                     if (cmd === ":playlistshuffle" || cmd === ":pls") {
-                        window.playlistShuffle = !window.playlistShuffle;
-                        saveSettings();
-                        filterWallpapersAnimation();
-                        showStatus(window.playlistShuffle ? "Playlist shuffle on" : "Playlist shuffle off");
-                        window.suppressTextHandler = true;
-                        searchInput.text = "";
-                        window.suppressTextHandler = false;
-                        listView.forceActiveFocus();
-                        return;
+                        if (blockWorkshopOnlyCommand("Unavailable in workshop mode"))
+                            return
+                        window.playlistShuffle = !window.playlistShuffle
+                        saveSettings()
+                        filterWallpapersAnimation()
+                        showStatus(window.playlistShuffle ? "Playlist shuffle on" : "Playlist shuffle off")
+                        window.suppressTextHandler = true
+                        searchInput.text = ""
+                        window.suppressTextHandler = false
+                        listView.forceActiveFocus()
+                        return
                     }
                     if (cmd === ":playlist" || cmd === ":pl") {
-                        window.showPlaylist = !window.showPlaylist;
-                        saveSettings();
-                        filterWallpapersAnimation();
-                        window.suppressTextHandler = true;
-                        searchInput.text = "";
-                        window.suppressTextHandler = false;
-                        listView.forceActiveFocus();
-                        return;
+                        if (blockWorkshopOnlyCommand("Unavailable in workshop mode"))
+                            return
+                        window.showPlaylist = !window.showPlaylist
+                        saveSettings()
+                        filterWallpapersAnimation()
+                        window.suppressTextHandler = true
+                        searchInput.text = ""
+                        window.suppressTextHandler = false
+                        listView.forceActiveFocus()
+                        return
                     }
 
                     if (cmd === ":playlist clear" || cmd === ":playlist c" || cmd === ":pl clear" || cmd === ":pl c") {
-                        window.playlist = [];
-                        window.playlistActive = false;
-                        window.showPlaylist = false;
-                        saveSettings();
-                        showStatus("Playlist cleared");
-                        filterWallpapersAnimation();
-                        window.suppressTextHandler = true;
-                        searchInput.text = "";
-                        window.suppressTextHandler = false;
-                        listView.forceActiveFocus();
-                        return;
+                        if (blockWorkshopOnlyCommand("Unavailable in workshop mode"))
+                            return
+                        window.playlist = []
+                        window.playlistActive = false
+                        window.showPlaylist = false
+                        saveSettings()
+                        showStatus("Playlist cleared")
+                        filterWallpapersAnimation()
+                        window.suppressTextHandler = true
+                        searchInput.text = ""
+                        window.suppressTextHandler = false
+                        listView.forceActiveFocus()
+                        return
                     }
 
                     if (cmd.startsWith(":playlist ")) {
-                        let mins = parseInt(rawCmd.replace(/^:playlist\s+/i, "").trim());
+                        if (blockWorkshopOnlyCommand("Unavailable in workshop mode"))
+                            return
+                        let mins = parseInt(rawCmd.replace(/^:playlist\s+/i, "").trim())
                         if (!isNaN(mins) && mins > 0) {
-                            window.playlistInterval = mins;
-                            saveSettings();
-                            filterWallpapersAnimation();
-                            showStatus("Playlist interval set to " + mins + " minutes");
+                            window.playlistInterval = mins
+                            saveSettings()
+                            filterWallpapersAnimation()
+                            showStatus("Playlist interval set to " + mins + " minutes")
                         }
-                        window.suppressTextHandler = true;
-                        searchInput.text = "";
-                        window.suppressTextHandler = false;
-                        listView.forceActiveFocus();
-                        return;
+                        window.suppressTextHandler = true
+                        searchInput.text = ""
+                        window.suppressTextHandler = false
+                        listView.forceActiveFocus()
+                        return
                     }
 
                     if (cmd.startsWith(":width ")) {
-                        let width = parseInt(rawCmd.replace(/^:width\s+/i, "").trim());
+                        let width = parseInt(rawCmd.replace(/^:width\s+/i, "").trim())
                         if (!isNaN(width) && width > 0) {
-                            width = Math.max(100, Math.min(1000, width));
+                            width = Math.max(100, Math.min(1000, width))
                             window.cardWidth = width;
-                            saveSettings();
-                            filterWallpapersAnimation();
-                            showStatus("Wallpaper cards width set to " + width + " px");
+                            saveSettings()
+                            filterWallpapersAnimation()
+                            showStatus("Wallpaper cards width set to " + width + " px")
                         }
-                        window.suppressTextHandler = true;
-                        searchInput.text = "";
-                        window.suppressTextHandler = false;
-                        listView.forceActiveFocus();
-                        return;
+                        window.suppressTextHandler = true
+                        searchInput.text = ""
+                        window.suppressTextHandler = false
+                        listView.forceActiveFocus()
+                        return
                     }
 
                     if (cmd.startsWith(":height ")) {
-                        let height = parseInt(rawCmd.replace(/^:height\s+/i, "").trim());
+                        let height = parseInt(rawCmd.replace(/^:height\s+/i, "").trim())
                         if (!isNaN(height) && height > 0) {
-                            height = Math.max(100, Math.min(600, height));
+                            height = Math.max(100, Math.min(600, height))
                             window.cardHeight = height;
-                            saveSettings();
-                            filterWallpapersAnimation();
-                            showStatus("Wallpaper cards height set to " + height + " px");
+                            saveSettings()
+                            filterWallpapersAnimation()
+                            showStatus("Wallpaper cards height set to " + height + " px")
                         }
-                        window.suppressTextHandler = true;
-                        searchInput.text = "";
-                        window.suppressTextHandler = false;
-                        listView.forceActiveFocus();
-                        return;
+                        window.suppressTextHandler = true
+                        searchInput.text = ""
+                        window.suppressTextHandler = false
+                        listView.forceActiveFocus()
+                        return
                     }
 
                     if (cmd.startsWith(":scale ")) {
-                        let scale = parseFloat(rawCmd.replace(/^:scale\s+/i, "").trim());
+                        let scale = parseFloat(rawCmd.replace(/^:scale\s+/i, "").trim())
                         if (!isNaN(scale) && scale > 0) {
-                            window.cardScale = scale;
-                            saveSettings();
-                            filterWallpapersAnimation();
-                            showStatus("Wallpaper cards scale set to " + scale + "x");
+                            window.cardScale = scale
+                            saveSettings()
+                            filterWallpapersAnimation()
+                            showStatus("Wallpaper cards scale set to " + scale + "x")
                         }
-                        window.suppressTextHandler = true;
-                        searchInput.text = "";
-                        window.suppressTextHandler = false;
-                        listView.forceActiveFocus();
-                        return;
+                        window.suppressTextHandler = true
+                        searchInput.text = ""
+                        window.suppressTextHandler = false
+                        listView.forceActiveFocus()
+                        return
                     }
 
                     if (cmd.startsWith(":spacing ")) {
                         let spacing = parseInt(rawCmd.replace(/^:spacing\s+/i, "").trim());
                         if (!isNaN(spacing) && spacing > 0) {
                             window.cardSpacing = spacing;
-                            saveSettings();
-                            filterWallpapersAnimation();
-                            showStatus("Wallpaper cards spacing set to " + spacing + "px");
+                            saveSettings()
+                            filterWallpapersAnimation()
+                            showStatus("Wallpaper cards spacing set to " + spacing + "px")
                         }
-                        window.suppressTextHandler = true;
-                        searchInput.text = "";
-                        window.suppressTextHandler = false;
-                        listView.forceActiveFocus();
-                        return;
+                        window.suppressTextHandler = true
+                        searchInput.text = ""
+                        window.suppressTextHandler = false
+                        listView.forceActiveFocus()
+                        return
                     }
 
                     if (cmd === matureCmd) {
-                        window.isMatureContentTriggered = true;
-                        window.showMatureContent = !window.showMatureContent;
-                        saveSettings();
-                        filterWallpapersAnimation();
-                        window.suppressTextHandler = true;
-                        searchInput.text = "";
-                        window.suppressTextHandler = false;
-                        searchDebounceTimer.stop();
-                        listView.forceActiveFocus();
-                        return;
+                        window.showMatureContent = !window.showMatureContent
+                        saveSettings()
+
+                        if (window.workshopMode)
+                            steamWorkshop.filterWorkshopItems()
+                        else
+                            filterWallpapersAnimation()
+
+                        window.suppressTextHandler = true
+                        searchInput.text = ""
+                        window.suppressTextHandler = false
+                        searchDebounceTimer.stop()
+                        listView.forceActiveFocus()
+                        return
                     }
 
                     if (cmd === ":static" || cmd === ":s") {
-                        window.showStatic = !window.showStatic;
+                        if (blockWorkshopOnlyCommand("Unavailable in workshop mode"))
+                            return
+                        window.showStatic = !window.showStatic
                         if (window.showStatic)
-                            window.showDynamic = false;
-                        saveSettings();
-                        filterWallpapersAnimation();
-                        window.suppressTextHandler = true;
-                        searchInput.text = "";
-                        window.suppressTextHandler = false;
-                        searchDebounceTimer.stop();
-                        listView.forceActiveFocus();
-                        return;
+                            window.showDynamic = false
+                        saveSettings()
+                        filterWallpapersAnimation()
+                        window.suppressTextHandler = true
+                        searchInput.text = ""
+                        window.suppressTextHandler = false
+                        searchDebounceTimer.stop()
+                        listView.forceActiveFocus()
+                        return
                     }
 
                     if (cmd === ":dynamic" || cmd === ":d") {
-                        window.showDynamic = !window.showDynamic;
+                        if (blockWorkshopOnlyCommand("Unavailable in workshop mode"))
+                            return
+                        window.showDynamic = !window.showDynamic
                         if (window.showDynamic)
-                            window.showStatic = false;
-                        saveSettings();
-                        filterWallpapersAnimation();
+                            window.showStatic = false
+                        saveSettings()
+                        filterWallpapersAnimation()
                         window.suppressTextHandler = true;
-                        searchInput.text = "";
+                        searchInput.text = ""
                         window.suppressTextHandler = false;
-                        searchDebounceTimer.stop();
-                        listView.forceActiveFocus();
-                        return;
+                        searchDebounceTimer.stop()
+                        listView.forceActiveFocus()
+                        return
                     }
 
                     if (cmd === ":favorite" || cmd === ":f") {
-                        window.showFavorite = !window.showFavorite;
-                        saveSettings();
-                        filterWallpapersAnimation();
-                        window.suppressTextHandler = true;
-                        searchInput.text = "";
-                        window.suppressTextHandler = false;
-                        searchDebounceTimer.stop();
-                        listView.forceActiveFocus();
+                        if (blockWorkshopOnlyCommand("Unavailable in workshop mode"))
+                            return
+                        window.showFavorite = !window.showFavorite
+                        saveSettings()
+                        filterWallpapersAnimation()
+                        window.suppressTextHandler = true
+                        searchInput.text = ""
+                        window.suppressTextHandler = false
+                        searchDebounceTimer.stop()
+                        listView.forceActiveFocus()
                         return;
                     }
                     if (cmd === ":clearcache" || cmd === ":cc") {
-                        deleteFolder(window.thumbFolder);
-                        window.validThumbs.clear();
-                        window.thumbQueue = [];
-                        reloadWallpapers();
-                        showStatus("Cleared cache");
-                        window.suppressTextHandler = true;
-                        searchInput.text = "";
-                        window.suppressTextHandler = false;
-                        listView.forceActiveFocus();
-                        return;
+                        if (blockWorkshopOnlyCommand("Unavailable in workshop mode"))
+                            return;
+                        deleteFolder(window.thumbFolder)
+                        window.validThumbs.clear()
+                        window.thumbQueue = []
+                        reloadWallpapers()
+                        showStatus("Cleared cache")
+                        window.suppressTextHandler = true
+                        searchInput.text = ""
+                        window.suppressTextHandler = false
+                        listView.forceActiveFocus()
+                        return
                     }
 
                     if (cmd === ":reload" || cmd === ":rl") {
-                        reloadWallpapers();
-                        showStatus("Reloaded wallpapers");
-                        window.suppressTextHandler = true;
-                        searchInput.text = "";
-                        window.suppressTextHandler = false;
-                        listView.forceActiveFocus();
+                        if (blockWorkshopOnlyCommand("Unavailable in workshop mode"))
+                            return
+                        reloadWallpapers()
+                        showStatus("Reloaded wallpapers")
+                        window.suppressTextHandler = true
+                        searchInput.text = ""
+                        window.suppressTextHandler = false
+                        listView.forceActiveFocus()
                         return;
                     }
 
+                    if (cmd === ":workshop" || cmd === ":ws") {
+                        resetNavigationState()
+                        resetCommandModeState()
+
+                        window.suggestions = []
+                        window.suggestionIndex = -1
+                        searchDebounceTimer.stop()
+
+                        window.suppressTextHandler = true
+                        searchInput.text = ""
+                        window.suppressTextHandler = false
+
+                        if (!window.workshopMode) {
+                            if (!steamWorkshop.hasStoredKey) {
+                                window.showWorkshopAuth = true
+                            } else {
+                                window.showWorkshopAuth = false
+                                window.workshopMode = true
+                                if (window.workshopSearchText !== "") {
+                                    window.suppressTextHandler = true
+                                    searchInput.text = window.workshopSearchText
+                                    window.suppressTextHandler = false
+                                }
+                                steamWorkshop.scanInstalled()
+                                steamWorkshop.runSearch(window.workshopSearchText)
+                                showStatus("Workshop mode")
+                            }
+                        } else {
+                            window.workshopMode = false
+                            window.showWorkshopAuth = false
+                            window.closeWorkshopInfoPanel()
+                            listView.currentIndex = filteredModel.count > 0 ? 0 : -1
+                            Qt.callLater(function() {
+                                if (listView.currentIndex >= 0)
+                                    listView.positionViewAtIndex(listView.currentIndex, ListView.Center)
+                            })
+                            filterWallpapers()
+                            showStatus("Local mode")
+                        }
+
+                        listView.forceActiveFocus()
+                        return
+                    }
+
                     if (cmd === ":random" || cmd === ":r") {
+                        if (blockWorkshopOnlyCommand("Unavailable in workshop mode"))
+                            return;
                         let candidates = getFilteredCandidates().filter(item => !item.isStatic);
                         if (candidates.length > 0) {
                             let pick = candidates[Math.floor(Math.random() * candidates.length)];
@@ -909,6 +1252,8 @@ Scope {
                     }
 
                     if (cmd === ":randomstatic" || cmd === ":rs") {
+                        if (blockWorkshopOnlyCommand("Unavailable in workshop mode"))
+                            return;
                         let candidates = getFilteredCandidates().filter(item => item.isStatic);
                         if (candidates.length > 0) {
                             let pick = candidates[Math.floor(Math.random() * candidates.length)];
@@ -927,6 +1272,8 @@ Scope {
                     }
 
                     if (cmd === ":randomfav" || cmd === ":rf") {
+                        if (blockWorkshopOnlyCommand("Unavailable in workshop mode"))
+                            return;
                         let candidates = getFilteredCandidates().filter(item => item.isFavorite);
                         if (candidates.length > 0) {
                             let pick = candidates[Math.floor(Math.random() * candidates.length)];
@@ -945,6 +1292,8 @@ Scope {
                     }
 
                     if (cmd.startsWith(":export") || cmd.startsWith(":ex")) {
+                        if (blockWorkshopOnlyCommand("Unavailable in workshop mode"))
+                            return;
                         let arg = rawCmd.replace(/^:(export|ex)\s*/i, "").trim().toLowerCase();
 
                         let exportItems = getFilteredCandidates().filter(item => {
@@ -957,19 +1306,40 @@ Scope {
                             return title.indexOf(arg) !== -1 || folderName.indexOf(arg) !== -1;
                         });
 
-                        let lines = exportItems.map(item => {
-                            let id = stripFileScheme(item.folder).replace(/\/$/, "").split("/").pop().replace(/-1$/, "");
-                            return "https://steamcommunity.com/sharedfiles/filedetails/?id=" + id;
+                        let exportPath = stripFileScheme(Qt.resolvedUrl("exported-wallpapers.txt"));
+                        let exportDir = exportPath.replace(/\/[^\/]+$/, "");
+                        let previewDir = exportDir + "/exported-previews";
+
+                        let lines = exportItems.map((item, i) => {
+                            let cleanFolder = stripFileScheme(item.folder).replace(/\/$/, "");
+                            let id = cleanFolder.split("/").pop().replace(/-1$/, "");
+                            let title = (item.title || "").toLowerCase();
+                            let num = String(i + 1);
+                            return num + ".  " + title + "    https://steamcommunity.com/sharedfiles/filedetails/?id=" + id;
                         }).join("\n");
 
-                        let exportPath = stripFileScheme(Qt.resolvedUrl("exported-wallpapers.txt"));
-                        writeProcess.command = [
-                            "/bin/bash",
-                            "-c",
-                            "printf %s " + shQuote(lines) + " > " + shQuote(exportPath)
-                        ];
+                        let copyLines = [];
+                        exportItems.forEach((item, i) => {
+                            let cleanFolder = stripFileScheme(item.folder).replace(/\/$/, "");
+                            let fullPath = item.preview && item.preview !== ""
+                                ? cleanFolder + "/" + item.preview
+                                : cleanFolder;
+                            let hash = Qt.md5(fullPath);
+                            let src = window.thumbFolder + "/" + hash + ".jpg";
+                            let num = String(i + 1).padStart(3, "0");
+                            let dest = previewDir + "/" + num + ".jpg";
+                            copyLines.push("[ -f " + shQuote(src) + " ] && cp -- " + shQuote(src) + " " + shQuote(dest));
+                        });
+
+                        let script = [
+                            "mkdir -p -- " + shQuote(previewDir),
+                            "printf %s " + shQuote(lines) + " > " + shQuote(exportPath),
+                            ...copyLines
+                        ].join("\n");
+
+                        writeProcess.command = ["/bin/bash", "-c", script];
                         writeProcess.startDetached();
-                        showStatus("Exported " + exportItems.length + " wallpapers to export.txt");
+                        showStatus("Exported " + exportItems.length + " wallpapers + previews");
                         window.suppressTextHandler = true;
                         searchInput.text = "";
                         window.suppressTextHandler = false;
@@ -979,6 +1349,8 @@ Scope {
                     }
 
                     if (cmd.startsWith(":setfolder ") || cmd.startsWith(":sf ")) {
+                        if (blockWorkshopOnlyCommand("Unavailable in workshop mode"))
+                            return;
                         let newPath = rawCmd.replace(/^:(setfolder|sf)\s+/i, "").trim();
 
                         if (newPath !== "") {
@@ -995,6 +1367,8 @@ Scope {
                     }
 
                     if (cmd.startsWith(":setstatic ") || cmd.startsWith(":ss ")) {
+                        if (blockWorkshopOnlyCommand("Unavailable in workshop mode"))
+                            return;
                         let newPath = rawCmd.replace(/^:(setstatic|ss)\s+/i, "").trim();
 
                         if (newPath !== "") {
@@ -1011,6 +1385,8 @@ Scope {
                     }
 
                     if (cmd.startsWith(":setthumb ") || cmd.startsWith(":st ")) {
+                        if (blockWorkshopOnlyCommand("Unavailable in workshop mode"))
+                            return;
                         let newPath = rawCmd.replace(/^:(setthumb|st)\s+/i, "").trim();
 
                         if (newPath !== "" && newPath !== window.thumbFolder) {
@@ -1029,27 +1405,81 @@ Scope {
                         return;
                     }
 
-                    if (cmd.startsWith(":sort ")) {
-                        let mode = cmd.replace(":sort ", "").trim();
+                    if (cmd === ":sort" || cmd.startsWith(":sort ")) {
+                        let mode = cmd.slice(5).trim();
 
-                        if (mode === "d")
-                            mode = "default";
-                        else if (mode === "n")
-                            mode = "name";
-                        else if (mode === "r")
-                            mode = "recent";
-                        else if (mode === "f")
-                            mode = "favorite";
+                        if (window.workshopMode) {
+                            let aliases = {
+                                "p": "popular",
+                                "all": "popular",
+                                "alltime": "popular",
+                                "subscriptions": "popular",
+                                "1d": "day",
+                                "daily": "day",
+                                "7d": "week",
+                                "weekly": "week",
+                                "trend": "week",
+                                "rating": "rated",
+                                "new": "recent",
+                                "accepted": "approved"
+                            };
 
-                        if (["default", "name", "recent", "favorite", "random"].includes(mode)) {
-                            if (window.sortMode === mode) {
-                                window.sortDescending = !window.sortDescending;
+                            mode = aliases[mode] || mode;
+
+                            let validModes = [
+                                "popular",
+                                "day",
+                                "week",
+                                "rated",
+                                "votes",
+                                "recent",
+                                "updated",
+                                "approved",
+                                "playtime-trend",
+                                "playtime",
+                                "average-playtime-trend",
+                                "average-playtime",
+                                "sessions-trend",
+                                "sessions",
+                                "text"
+                            ];
+
+                            if (mode === "") {
+                                showStatus(
+                                    "Workshop sort: " + window.workshopSortMode
+                                    + " — popular, day, week, rated, votes, recent, updated, approved"
+                                );
+                            } else if (mode === "month") {
+                                showStatus("Steam only exposes 1–7 day trend windows; month is unavailable");
+                            } else if (!validModes.includes(mode)) {
+                                showStatus("Unknown Steam Workshop sort: " + mode);
                             } else {
-                                window.sortMode = mode;
-                                window.sortDescending = false;
+                                window.workshopSortMode = mode;
+                                saveSettings();
+                                steamWorkshop.runSearch(window.workshopSearchText);
+                                showStatus("Workshop sort: " + mode);
                             }
-                            saveSettings();
-                            filterWallpapersAnimation();
+                        } else {
+                            if (mode === "d")
+                                mode = "default";
+                            else if (mode === "n")
+                                mode = "name";
+                            else if (mode === "r")
+                                mode = "recent";
+                            else if (mode === "f")
+                                mode = "favorite";
+
+                            if (["default", "name", "recent", "favorite", "random"].includes(mode)) {
+                                if (window.sortMode === mode) {
+                                    window.sortDescending = !window.sortDescending;
+                                } else {
+                                    window.sortMode = mode;
+                                    window.sortDescending = false;
+                                }
+
+                                saveSettings();
+                                filterWallpapersAnimation();
+                            }
                         }
 
                         window.suppressTextHandler = true;
@@ -1061,6 +1491,8 @@ Scope {
                     }
 
                     if (cmd === ":open" || cmd === ":o") {
+                        if (blockWorkshopOnlyCommand("Unavailable in workshop mode"))
+                            return;
                         let path = window.preCommandPath !== "" ? window.preCommandPath.replace(/\/$/, "").split("/").pop() : window.lastWallpaperPath.replace(/\/$/, "").split("/").pop();
                         let id = path.replace(/\/$/, "").split("/").pop().replace(/-1$/, "");
                         if (id && /^\d+$/.test(id)) {
@@ -1076,6 +1508,8 @@ Scope {
                     }
 
                     if (cmd === ":id") {
+                        if (blockWorkshopOnlyCommand("Unavailable in workshop mode"))
+                            return;
                         let path = window.preCommandPath !== "" ? window.preCommandPath : window.lastWallpaperPath;
                         if (path !== "") {
                             let id = path.replace(/\/$/, "").split("/").pop();
@@ -1091,6 +1525,8 @@ Scope {
                     }
 
                     if (cmd === ":gif") {
+                        if (blockWorkshopOnlyCommand("Unavailable in workshop mode"))
+                            return;
                         window.enableGifPreview = !window.enableGifPreview;
                         saveSettings();
                         filterWallpapersAnimation();
@@ -1101,23 +1537,32 @@ Scope {
                         return;
                     }
 
-                    if (cmd.startsWith(":tag ")) {
-                        let tag = rawCmd.replace(/^:tag\s+/i, "").trim().toLowerCase();
-                        window.filterTag = window.filterTag === tag ? "" : tag;
-                        saveSettings();
-                        filterWallpapersAnimation();
-                        window.suppressTextHandler = true;
-                        searchInput.text = "";
-                        window.suppressTextHandler = false;
-                        searchDebounceTimer.stop();
-                        listView.forceActiveFocus();
-                        return;
-                    }
+                    if (cmd === ":tag" || cmd.startsWith(":tag ")) {
+                        let tag = rawCmd.replace(/^:tag\s*/i, "").trim();
 
-                    if (cmd === ":tag") {
-                        window.filterTag = "";
-                        saveSettings();
-                        filterWallpapersAnimation();
+                        if (window.workshopMode) {
+                            window.workshopRequiredTag = tag;
+                            saveSettings();
+                            steamWorkshop.runSearch(window.workshopSearchText);
+
+                            showStatus(
+                                tag === ""
+                                    ? "Workshop tag cleared"
+                                    : "Workshop tag: " + tag
+                            );
+                        } else {
+                            let localTag = tag.toLowerCase();
+                            window.filterTag = localTag;
+                            saveSettings();
+                            filterWallpapersAnimation();
+
+                            showStatus(
+                                localTag === ""
+                                    ? "Tag cleared"
+                                    : "Tag: " + localTag
+                            );
+                        }
+
                         window.suppressTextHandler = true;
                         searchInput.text = "";
                         window.suppressTextHandler = false;
@@ -1227,7 +1672,13 @@ Scope {
                 let path = Qt.resolvedUrl("settings.json").toString().replace(/^file:\/\//, "");
                 let dir = path.replace(/\/[^\/]*$/, "");
                 window.settingsPath = path;
-                initSettingsProcess.command = ["/bin/bash", "-c", `mkdir -p "${dir}" && [ -f "${path}" ] || echo '{}' > "${path}"`];
+                const command =
+                    "mkdir -p -- " + shQuote(dir) +
+                    " && if [ ! -f " + shQuote(path) + " ]; then " +
+                    "printf '%s\\n' '{}' > " + shQuote(path) +
+                    "; fi"
+
+                initSettingsProcess.command = ["/bin/bash", "-c", command];
                 initSettingsProcess.startDetached();
                 Qt.callLater(() => {
                     loadSettings(function () {
@@ -1389,31 +1840,11 @@ Scope {
                         items.reverse();
                 }
 
-                for (let i = filteredModel.count - 1; i >= 0; i--) {
-                    let found = false;
-                    for (let j = 0; j < items.length; j++) {
-                        if (items[j].folder === filteredModel.get(i).folder) {
-                            found = true;
-                            break;
-                        }
-                    }
-                    if (!found)
-                        filteredModel.remove(i);
-                }
-
+                listView.highlightMoveDuration = 0;
+                listView.currentIndex = -1;
+                filteredModel.clear();
                 for (let i = 0; i < items.length; i++) {
-                    let currentPos = -1;
-                    for (let j = 0; j < filteredModel.count; j++) {
-                        if (filteredModel.get(j).folder === items[i].folder) {
-                            currentPos = j;
-                            break;
-                        }
-                    }
-                    if (currentPos === -1) {
-                        filteredModel.insert(i, items[i]);
-                    } else if (currentPos !== i) {
-                        filteredModel.move(currentPos, i, 1);
-                    }
+                    filteredModel.append(items[i]);
                 }
 
                 if (previousFolder !== "") {
@@ -1474,16 +1905,15 @@ Scope {
                 if (newIndex === -1 && filteredModel.count > 0)
                     newIndex = 0;
 
+                window.pendingScrollPath = "";
                 if (newIndex !== -1) {
                     window.targetIndexTracker = newIndex;
                     Qt.callLater(() => {
                         if (listView.count === 0)
                             return;
                         listView.currentIndex = newIndex;
-
-                        Qt.callLater(() => {
-                            listView.positionViewAtIndex(newIndex, ListView.Center);
-                        });
+                        listView.positionViewAtIndex(newIndex, ListView.Center);
+                        Qt.callLater(() => listView.highlightMoveDuration = 300);
                     });
                 }
                 window.wasInCommandMode = enteringCommand;
@@ -1592,11 +2022,18 @@ Scope {
                                 return;
                             }
                         }
-                        if (!searchInput.activeFocus && !window.showHelp && event.key !== Qt.Key_Backspace && event.key !== Qt.Key_Escape && event.key !== Qt.Key_Tab && event.text.length > 0) {
+                        if (!searchInput.activeFocus && !window.showHelp && event.key !== Qt.Key_Escape && event.key !== Qt.Key_Tab && event.text.length > 0) {
+                            if (event.key === Qt.Key_Backspace) {
+                                if (searchInput.text.length > 0) {
+                                    searchInput.forceActiveFocus();
+                                }
+                                event.accepted = true;
+                                return;
+                            }
                             searchInput.visible = true;
                             searchInput.forceActiveFocus();
-                            searchInput.text = event.text;
-                            searchInput.cursorPosition = 1;
+                            searchInput.insert(searchInput.text.length, event.text);
+                            searchInput.cursorPosition = searchInput.text.length;
                             event.accepted = true;
                         }
                     }
@@ -1623,7 +2060,18 @@ Scope {
                             interval: 250
                             repeat: false
                             onTriggered: {
+                                if (window.workshopMode) {
+                                    window.workshopSearchText = searchInput.text
+                                    saveDebounceTimer.restart() 
+                                    steamWorkshop.runSearch(searchInput.text)
+                                    if (searchInput.text.length === 0)
+                                        listView.forceActiveFocus()
+                                    return
+                                }
+
+                                rememberLocalSelectionForFilter();
                                 filterWallpapersAnimation();
+
                                 if (searchInput.text.length === 0) {
                                     listView.forceActiveFocus();
                                 }
@@ -1650,15 +2098,22 @@ Scope {
                         onTextChanged: {
                             if (window.suppressTextHandler)
                                 return;
+
                             let isCommand = text.trim().startsWith(":");
                             let wasCommand = window.wasInCommandMode;
                             updateSuggestions(text);
+
                             if (isCommand && !wasCommand) {
                                 searchDebounceTimer.stop();
+                                rememberLocalSelectionForFilter();
                                 filterWallpapersAnimation();
                             } else if (!isCommand) {
+                                if (!window.workshopMode)
+                                    rememberLocalSelectionForFilter();
                                 searchDebounceTimer.restart();
                             }
+
+                            window.wasInCommandMode = isCommand;
                         }
                     }
 
@@ -1863,7 +2318,7 @@ Scope {
                             anchors.bottomMargin: 90
                             orientation: ListView.Horizontal
                             spacing: cardSpacing
-                            model: filteredModel
+                            model: window.workshopMode ? steamWorkshop.workshopFilteredModel : filteredModel
                             cacheBuffer: 300
                             highlightMoveDuration: 300
                             boundsBehavior: Flickable.StopAtBounds
@@ -1872,6 +2327,7 @@ Scope {
                             preferredHighlightBegin: (width / 2) - (window.cardWidth / 2)
                             preferredHighlightEnd: (width / 2) - (window.cardWidth / 2)
                             highlightRangeMode: ListView.StrictlyEnforceRange
+                            property real parallaxPx: 15 * (window.cardWidth / 200)
 
                             NumberAnimation {
                                 id: initialFadeIn
@@ -1891,6 +2347,34 @@ Scope {
                                     window.previousCurrentIndex = lastCurrentIndex
                                     lastCurrentIndex = currentIndex
                                 }
+
+                                if (window.workshopMode) {
+                                    Qt.callLater(function() {
+                                        if (window.isQuitting)
+                                            return
+                                        if (currentIndex >= 0 && currentIndex < steamWorkshop.workshopFilteredModel.count) {
+                                            let item = steamWorkshop.workshopFilteredModel.get(currentIndex)
+                                            if (item && item.id) {
+                                                window.workshopSelectedId = String(item.id)
+                                                saveDebounceTimer.restart()
+                                            }
+                                        }
+                                    })
+                                    if (!window.isQuitting)
+                                        steamWorkshop.maybePrefetchByView(contentX, width, contentWidth)
+                                }
+                            }
+
+                            onContentXChanged: {
+                                if (window.workshopMode && !window.isQuitting) {
+                                    steamWorkshop.maybePrefetchByView(contentX, width, contentWidth)
+                                }
+                            }
+
+                            onMovementEnded: {
+                                if (window.workshopMode && !window.isQuitting) {
+                                    steamWorkshop.maybePrefetchByView(contentX, width, contentWidth)
+                                }
                             }
 
                             delegate: Item {
@@ -1906,7 +2390,41 @@ Scope {
                                 property bool hoverActive: hoverMode && index === window.hoveredIndex
                                 property bool active: window.keyboardNavigation ? index === activeIndex : hoverActive
 
-                              
+                                readonly property real parallaxRank: {
+                                    let slot = Math.max(1, baseWidth + listView.spacing)
+                                    let cardCenter =
+                                        delegateRoot.x
+                                        - listView.contentX
+                                        + baseWidth / 2
+
+                                    return (cardCenter - listView.width / 2) / slot
+                                }
+
+                                readonly property int parallaxHalfVisible: Math.max(
+                                    1,
+                                    Math.ceil(
+                                        listView.width
+                                        / (2 * Math.max(1, baseWidth + listView.spacing))
+                                    )
+                                )
+
+                                readonly property real parallaxOverscan:
+                                    (parallaxHalfVisible + 1) * listView.parallaxPx + 20
+
+                                property bool isWorkshopItem: window.workshopMode
+                                property var workshopItem: isWorkshopItem ? model : null
+                                property string workshopId: isWorkshopItem ? String(model.id || "") : ""
+                                property bool workshopInstalled: isWorkshopItem ? steamWorkshop.isInstalled(workshopId) : false
+                                property string workshopDlState: isWorkshopItem ? steamWorkshop.getDownloadStatus(workshopId) : ""
+                                property real workshopDlPct: isWorkshopItem ? steamWorkshop.getDownloadProgress(workshopId) : 0
+                                property bool workshopDownloading: isWorkshopItem && (workshopDlState === "queued" || workshopDlState === "downloading")
+                                property bool workshopInfoOpen: isWorkshopItem && steamWorkshop.openInfoId === workshopId
+                                property real workshopFileSize: Number(
+                                    steamWorkshop.fetchedFileSizes[workshopId] ?? model.fileSize ?? 0
+                                )
+                                property string workshopCreatorName: isWorkshopItem ? String(model.creatorName || "") : ""
+                                property string workshopCreatorUrl: isWorkshopItem ? String(model.creatorUrl || "") : ""
+
                                 width: baseWidth
                                 height: baseHeight
 
@@ -1932,6 +2450,7 @@ Scope {
                                 property bool isVisibleOnScreen: delegateRoot.ListView.view ? (x + width > ListView.view.contentX && x < ListView.view.contentX + ListView.view.width) : false
 
                                 property int playlistPosition: {
+                                    if (delegateRoot.isWorkshopItem) return -1
                                     let path = folder ? stripFileScheme(folder).replace(/\/$/, "") : "";
                                     return window.playlist.indexOf(path);
                                 }
@@ -1979,6 +2498,7 @@ Scope {
                                         Item {
                                             anchors.fill: parent
                                             anchors.margins: 1
+                                            clip: true
                                             layer.enabled: isVisibleOnScreen
                                             layer.effect: MultiEffect {
                                                 maskEnabled: true
@@ -1997,78 +2517,113 @@ Scope {
                                                 id: previewLoader
                                                 anchors.fill: parent
 
-                                                property string normalizedPath: folder ? folder.replace(/\/$/, "") : ""
-                                                property bool isGif: window.enableGifPreview && preview && preview.toLowerCase().endsWith(".gif")
+                                                property string normalizedPath: {
+                                                    if (delegateRoot.isWorkshopItem) return ""
+                                                    return folder ? folder.replace(/\/$/, "") : ""
+                                                }
 
-                                                sourceComponent: isGif ? animatedPreview : staticPreview
+                                                property bool isGif: window.enableGifPreview && !delegateRoot.isWorkshopItem && preview && preview.toLowerCase().endsWith(".gif")
+
+                                                sourceComponent: delegateRoot.isWorkshopItem
+                                                    ? workshopPreview
+                                                    : (isGif ? animatedPreview : staticPreview)
+
+                                                Component {
+                                                    id: workshopPreview
+
+                                                    Item {
+                                                        anchors.fill: parent
+
+                                                        AnimatedImage {
+                                                            id: workshopAnim
+                                                            width: parent.width + delegateRoot.parallaxOverscan * 2
+                                                            height: parent.height
+                                                            anchors.verticalCenter: parent.verticalCenter
+
+                                                            x: (parent.width - width) / 2
+                                                            - delegateRoot.parallaxRank * listView.parallaxPx
+                                                            fillMode: Image.PreserveAspectCrop
+                                                            asynchronous: true
+                                                            smooth: true
+                                                            cache: true
+                                                            playing: isVisibleOnScreen
+                                                            source: model.previewUrl || ""
+                                                            visible: status === AnimatedImage.Ready
+                                                        }
+
+                                                        Image {
+                                                            id: workshopStatic
+                                                            width: parent.width + delegateRoot.parallaxOverscan * 2
+                                                            height: parent.height
+                                                            anchors.verticalCenter: parent.verticalCenter
+
+                                                            x: (parent.width - width) / 2
+                                                            - delegateRoot.parallaxRank * listView.parallaxPx
+                                                            fillMode: Image.PreserveAspectCrop
+                                                            asynchronous: true
+                                                            smooth: true
+                                                            cache: true
+                                                            sourceSize.width: scaleContainer.width
+                                                            sourceSize.height: scaleContainer.height
+                                                            source: model.previewUrl || ""
+                                                            visible: workshopAnim.status !== AnimatedImage.Ready
+                                                        }
+                                                    }
+                                                }
 
                                                 Component {
                                                     id: staticPreview
-                                                    Image {
-                                                        id: staticImg
+                                                    Item {
                                                         anchors.fill: parent
-                                                        fillMode: Image.PreserveAspectCrop
-                                                        asynchronous: true
-                                                        smooth: true
-                                                        cache: true
-                                                        sourceSize.width: scaleContainer.width
-                                                        sourceSize.height: scaleContainer.height
-                                                        source: {
-                                                            if (!previewLoader.normalizedPath)
-                                                                return "";
-                                                            let fullPath;
-                                                            if (preview && preview !== "")
-                                                                fullPath = previewLoader.normalizedPath + "/" + preview;
-                                                            else if (isStatic)
-                                                                fullPath = previewLoader.normalizedPath;
-                                                            else
-                                                                return "";
-                                                            let hash = Qt.md5(fullPath);
-                                                            return "file://" + window.thumbFolder + "/" + hash + ".jpg";
-                                                        }
+                                                        Image {
+                                                            id: staticImg
+                                                            width: parent.width + delegateRoot.parallaxOverscan * 2
+                                                            height: parent.height
+                                                            anchors.verticalCenter: parent.verticalCenter
 
-                                                        onStatusChanged: {
-                                                            if (status === Image.Ready)
-                                                                fadeIn.start();
-                                                        }
-                                                        NumberAnimation {
-                                                            id: fadeIn
-                                                            target: staticImg
-                                                            property: "opacity"
-                                                            from: 0
-                                                            to: 1
-                                                            duration: 200
-                                                            easing.type: Easing.BezierSpline
-                                                            easing.bezierCurve: [0.5, 0.5, 0.75, 1.0, 1, 1]
+                                                            x: (parent.width - width) / 2
+                                                            - delegateRoot.parallaxRank * listView.parallaxPx
+                                                            fillMode: Image.PreserveAspectCrop
+                                                            asynchronous: true
+                                                            smooth: true
+                                                            cache: true
+                                                            sourceSize.width: scaleContainer.width
+                                                            sourceSize.height: scaleContainer.height
+                                                            source: {
+                                                                if (!previewLoader.normalizedPath)
+                                                                    return ""
+                                                                let fullPath
+                                                                if (preview && preview !== "")
+                                                                    fullPath = previewLoader.normalizedPath + "/" + preview
+                                                                else if (isStatic)
+                                                                    fullPath = previewLoader.normalizedPath
+                                                                else
+                                                                    return ""
+                                                                let hash = Qt.md5(fullPath)
+                                                                return "file://" + window.thumbFolder + "/" + hash + ".jpg"
+                                                            }
                                                         }
                                                     }
                                                 }
 
                                                 Component {
                                                     id: animatedPreview
-                                                    AnimatedImage {
-                                                        id: animImg
+                                                        Item {
                                                         anchors.fill: parent
-                                                        fillMode: Image.PreserveAspectCrop
-                                                        asynchronous: true
-                                                        smooth: true
-                                                        cache: true
-                                                        playing: isVisibleOnScreen
-                                                        source: previewLoader.normalizedPath !== "" ? "file://" + previewLoader.normalizedPath + "/" + preview : ""
+                                                        AnimatedImage {
+                                                            id: animImg
+                                                            width: parent.width + delegateRoot.parallaxOverscan * 2
+                                                            height: parent.height
+                                                            anchors.verticalCenter: parent.verticalCenter
 
-                                                        onStatusChanged: {
-                                                            if (status === AnimatedImage.Ready)
-                                                                fadeIn.start();
-                                                        }
-                                                        NumberAnimation {
-                                                            id: fadeIn
-                                                            target: animImg
-                                                            property: "opacity"
-                                                            from: 0
-                                                            to: 1
-                                                            duration: 200
-                                                            easing.type: Easing.BezierSpline
-                                                            easing.bezierCurve: [0.5, 0.5, 0.75, 1.0, 1, 1]
+                                                            x: (parent.width - width) / 2
+                                                            - delegateRoot.parallaxRank * listView.parallaxPx
+                                                            fillMode: Image.PreserveAspectCrop
+                                                            asynchronous: true
+                                                            smooth: true
+                                                            cache: true
+                                                            playing: isVisibleOnScreen
+                                                            source: previewLoader.normalizedPath !== "" ? "file://" + previewLoader.normalizedPath + "/" + preview : ""
                                                         }
                                                     }
                                                 }
@@ -2170,14 +2725,214 @@ Scope {
                                             font.weight: Font.Medium
                                         }
                                     }
+
+                                    Rectangle {
+                                        id: workshopInfoCard
+                                        visible: delegateRoot.isWorkshopItem && delegateRoot.workshopInfoOpen
+                                        opacity: visible ? 1 : 0
+
+                                        width: baseWidth
+                                        height: baseHeight
+                                        anchors.centerIn: parent
+                                        anchors.topMargin: 10
+                                        anchors.leftMargin: 10
+                                        z: 30
+
+                                        radius: 15
+                                        color: Theme.background90
+                                        border.width: active ? 2 : 1
+                                        border.color: active ? Theme.border : Theme.background
+                                        Behavior on border.color {
+                                            ColorAnimation {
+                                                duration: 300
+                                            }
+                                        }
+                                        
+                                        Behavior on opacity {
+                                            NumberAnimation {
+                                                duration: 300
+                                                easing.type: Easing.BezierSpline
+                                                easing.bezierCurve: [0.22, 1, 0.36, 1, 1, 1]
+                                            }
+                                        }
+
+                                        Column {
+                                            id: infoColumn
+                                            anchors.left: parent.left
+                                            anchors.right: parent.right
+                                            anchors.top: parent.top
+                                            anchors.margins: 10
+                                            spacing: 6
+
+                                            Text {
+                                                horizontalAlignment: Text.AlignHCenter
+                                                width: parent.width
+                                                text: String(model.title || "")
+                                                color: Theme.text
+                                                font.pixelSize: 16
+                                                font.weight: Font.Medium
+                                                wrapMode: Text.WordWrap
+                                                maximumLineCount: 3
+                                                elide: Text.ElideRight
+                                            }
+
+                                            Rectangle {
+                                                width: parent.width
+                                                height: 1
+                                                color: Theme.border
+                                                opacity: 0.5
+                                            }
+
+                                            Text {
+                                                horizontalAlignment: Text.AlignHCenter
+                                                width: parent.width
+                                                text: delegateRoot.workshopFileSize > 0
+                                                ? "Size: " + window.formatWorkshopBytes(delegateRoot.workshopFileSize)
+                                                : "Size: Unknown"
+                                                color: Theme.text
+                                                font.pixelSize: 13
+                                                wrapMode: Text.WordWrap
+                                            }
+
+                                            Text {
+                                                horizontalAlignment: Text.AlignHCenter
+                                                width: parent.width
+                                                text: "Subscribers: " + window.formatInt(model.subscriptions)
+                                                color: Theme.text
+                                                font.pixelSize: 13
+                                                wrapMode: Text.WordWrap
+                                            }
+
+                                            Text {
+                                                horizontalAlignment: Text.AlignHCenter
+                                                width: parent.width
+                                                text: "Favorites: " + window.formatInt(model.favorited)
+                                                color: Theme.text
+                                                font.pixelSize: 13
+                                                wrapMode: Text.WordWrap
+                                            }
+
+                                            Text {
+                                                horizontalAlignment: Text.AlignHCenter
+                                                width: parent.width
+                                                text: "Creator"
+                                                color: Theme.border
+                                                font.pixelSize: 14
+                                            }
+
+                                            Text {
+                                                horizontalAlignment: Text.AlignHCenter
+                                                width: parent.width
+                                                text: delegateRoot.workshopCreatorName !== ""
+                                                    ? delegateRoot.workshopCreatorName
+                                                    : "Loading..."
+                                                color: creatorMouse.containsMouse ? Theme.accent : Theme.text
+                                                font.pixelSize: 13
+                                                font.underline: creatorMouse.containsMouse
+                                                wrapMode: Text.WordWrap
+
+                                                MouseArea {
+                                                    id: creatorMouse
+                                                    anchors.fill: parent
+                                                    hoverEnabled: true
+                                                    acceptedButtons: Qt.LeftButton
+                                                    preventStealing: true
+                                                    propagateComposedEvents: false
+                                                    enabled: delegateRoot.workshopCreatorUrl !== ""
+                                                    cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+
+                                                    onPressed: mouse => {
+                                                        mouse.accepted = true
+                                                    }
+
+                                                    onClicked: mouse => {
+                                                        mouse.accepted = true
+
+                                                        let u = String(delegateRoot.workshopCreatorUrl || "").trim()
+                                                        if (u === "")
+                                                            return
+
+                                                        workshopidProcess.command = [
+                                                            "/bin/sh",
+                                                            "-c",
+                                                            shJoin(["xdg-open", "steam://openurl/" + u])
+                                                        ]
+                                                        workshopidProcess.startDetached()
+                                                    }
+                                                }
+                                            }
+                                        }
+
+                                        Text {
+                                            anchors.bottom: parent.bottom
+                                            anchors.margins: 10
+                                            text: delegateRoot.workshopInstalled
+                                                ? "Installed"
+                                                : delegateRoot.workshopDlState
+                                            color: Theme.border
+                                            font.pixelSize: 12
+                                            width: parent.width
+                                            wrapMode: Text.WordWrap
+                                        }
+
+                                        Rectangle {
+                                            width: parent.width - 20
+                                            anchors.bottom: parent.bottom
+                                            anchors.margins: 10
+                                            anchors.horizontalCenter: parent.horizontalCenter
+                                            height: 34
+                                            radius: 16
+                                            color: openSteamMouse.containsMouse
+                                                ? Qt.rgba(Theme.border.r, Theme.border.g, Theme.border.b, 0.85)
+                                                : Theme.border
+                                            border.color: Theme.border
+                                            border.width: 1
+
+                                            Behavior on color {
+                                                ColorAnimation { duration: 120 }
+                                            }
+
+                                            Text {
+                                                anchors.centerIn: parent
+                                                text: "Open in Steam"
+                                                color: Theme.background
+                                                font.pixelSize: 13
+                                                font.weight: Font.Medium
+                                            }
+
+                                            MouseArea {
+                                                id: openSteamMouse
+                                                anchors.fill: parent
+                                                acceptedButtons: Qt.LeftButton
+                                                hoverEnabled: true
+                                                preventStealing: true
+                                                propagateComposedEvents: false
+
+                                                onPressed: mouse => {
+                                                    mouse.accepted = true
+                                                }
+
+                                                onClicked: mouse => {
+                                                    mouse.accepted = true
+                                                    window.openWorkshopInSteam(delegateRoot.workshopId)
+                                                    steamWorkshop.openInfoId = ""
+                                                    window.showStatus("Opened workshop item in Steam: " + String(model.title || ""))
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
-
-
+                            
                                     Item {
                                         id: favContainer
                                         width: 30
                                         height: 30
                                         scale: active ? cardScale : 1.0
+                                        property bool isWorkshop: delegateRoot.isWorkshopItem
+                                        property string workshopId: model.id ? String(model.id) : ""
+                                        property bool installed: isWorkshop && steamWorkshop.isInstalled(workshopId)
+
+                                        visible: isWorkshop ? installed : true
                                         property int offsetX: active ? cardScale * 15 : 15
                                         property int offsetY: active ? cardScale * 10 : 10
                                         x: scaleContainer.x + baseWidth * (1 + scaleContainer.scale) / 2 - width - offsetX
@@ -2211,8 +2966,9 @@ Scope {
 
                                         MouseArea {
                                             anchors.fill: parent
-                                            hoverEnabled: true
-                                            cursorShape: Qt.PointingHandCursor
+                                            hoverEnabled: !favContainer.isWorkshop
+                                            enabled: !favContainer.isWorkshop
+                                            cursorShape: !favContainer.isWorkshop ? Qt.PointingHandCursor : Qt.ArrowCursor
                                             onEntered: favContainer.mouseOverFav = true
                                             onExited: favContainer.mouseOverFav = false
                                             onClicked: {
@@ -2241,13 +2997,13 @@ Scope {
                                         }
 
                                         Text {
-                                            text: ""
+                                            text: favContainer.isWorkshop ? "" : ""
                                             color: Theme.border
                                             font.pixelSize: 28
                                             anchors.fill: parent
                                             horizontalAlignment: Text.AlignHCenter
                                             verticalAlignment: Text.AlignVCenter
-                                            opacity: model.isFavorite ? 1 : 0
+                                            opacity: favContainer.isWorkshop ? 1 : (model.isFavorite ? 1 : 0)
                                             Behavior on opacity {
                                                 NumberAnimation {
                                                     duration: 300
@@ -2264,7 +3020,7 @@ Scope {
                                             anchors.fill: parent
                                             horizontalAlignment: Text.AlignHCenter
                                             verticalAlignment: Text.AlignVCenter
-                                            opacity: (!model.isFavorite && (model.isFavorite || favContainer.mouseOverFav)) ? 1 : 0
+                                            opacity: (!favContainer.isWorkshop && !model.isFavorite && favContainer.mouseOverFav) ? 1 : 0
                                             Behavior on opacity {
                                                 NumberAnimation {
                                                     duration: 500
@@ -2282,7 +3038,9 @@ Scope {
                                     height: active ? cardScale * baseHeight : baseHeight
                                     hoverEnabled: true
                                     propagateComposedEvents: true
-                                    acceptedButtons: Qt.LeftButton
+                                    acceptedButtons: delegateRoot.workshopInfoOpen
+                                    ? Qt.RightButton
+                                    : (Qt.LeftButton | Qt.RightButton)
                                     z: 1
                                     onEntered: {
                                         window.anyHovered = true
@@ -2295,33 +3053,68 @@ Scope {
                                             Qt.callLater(() => window.clearHoveredIndex(index))
                                     }
                                     onDoubleClicked: {
-                                        if (!(mouse.modifiers & Qt.ShiftModifier)) {
-                                            applyWallpaper(model);
+                                        if (mouse.modifiers & Qt.ShiftModifier)
+                                            return
+
+                                        if (delegateRoot.isWorkshopItem) {
+                                            window.openWorkshopInSteam(delegateRoot.workshopId)
+                                            return
                                         }
+
+                                        applyWallpaper(model)
                                     }
                                     onClicked: mouse => {
+                                        if (delegateRoot.isWorkshopItem) {
+                                            if (mouse.button === Qt.RightButton) {
+                                                listView.currentIndex = index
+
+                                                const willOpen = steamWorkshop.openInfoId !== delegateRoot.workshopId
+                                                steamWorkshop.openInfoId = willOpen ? delegateRoot.workshopId : ""
+
+                                                if (willOpen) {
+                                                    if (delegateRoot.workshopFileSize <= 0)
+                                                        steamWorkshop.fetchFileSize(delegateRoot.workshopId)
+
+                                                    if (delegateRoot.workshopCreatorName === "")
+                                                        steamWorkshop.fetchCreatorInfo(delegateRoot.workshopId)
+                                                }
+                                                return
+                                            }
+
+                                            if (mouse.button === Qt.LeftButton) {
+                                                listView.currentIndex = index
+                                                return
+                                            }
+
+                                            return
+                                        }
+
                                         if (mouse.modifiers & Qt.ShiftModifier) {
-                                            let path = stripFileScheme(model.folder).replace(/\/$/, "");
-                                            let idx = window.playlist.indexOf(path);
+                                            let path = stripFileScheme(model.folder).replace(/\/$/, "")
+                                            let idx = window.playlist.indexOf(path)
+
                                             if (idx === -1) {
-                                                window.playlist = [...window.playlist, path];
+                                                window.playlist = [...window.playlist, path]
                                                 if (showPlaylist) {
-                                                    filterWallpapersAnimation();
+                                                    filterWallpapersAnimation()
                                                 }
                                             } else {
-                                                window.playlist = window.playlist.filter((_, i) => i !== idx);
+                                                window.playlist = window.playlist.filter((_, i) => i !== idx)
                                                 if (showPlaylist) {
-                                                    filterWallpapersAnimation();
+                                                    filterWallpapersAnimation()
                                                 }
                                             }
+
                                             if (window.playlist.length === 0) {
-                                                window.playlistActive = false;
+                                                window.playlistActive = false
                                             }
-                                            saveSettings();
+
+                                            saveSettings()
                                         }
                                     }
 
                                     onWheel: function (wheel) {
+                                        if (filterAnimation.running) return;
                                         window.keyboardNavigation = false;
                                         if (wheel.angleDelta.y > 0)
                                             listView.currentIndex = Math.max(0, listView.currentIndex - 1);
@@ -2363,7 +3156,7 @@ Scope {
                                     event.accepted = true;
                                     return;
                                 }
-                                Qt.quit();
+                                doQuit()
                             }
 
                             Keys.onUpPressed: event => {
@@ -2395,11 +3188,13 @@ Scope {
                             }
 
                             Keys.onLeftPressed: event => {
+                                if (filterAnimation.running) { event.accepted = true; return; }
                                 window.keyboardNavigation = true;
                                 listView.currentIndex = Math.max(0, listView.currentIndex - 1);
                             }
 
                             Keys.onRightPressed: event => {
+                                if (filterAnimation.running) { event.accepted = true; return; }
                                 window.keyboardNavigation = true;
                                 listView.currentIndex = Math.min(listView.count - 1, listView.currentIndex + 1);
                             }
@@ -2666,9 +3461,171 @@ Scope {
                     }
                 }
 
+                Rectangle {
+                    id: workshopAuthPopup
+                    visible: opacity > 0
+                    opacity: window.showWorkshopAuth ? 1 : 0
+                    anchors.centerIn: parent
+                    width: 420
+                    height: steamWorkshop.hasStoredKey ? cardHeight * 0.611 : cardHeight * 0.833
+                    radius: 15
+                    color: Theme.background90
+                    border.color: Theme.border
+                    border.width: 1
+                    z: 11
+
+                    Behavior on opacity {
+                        NumberAnimation {
+                            duration: 300
+                            easing.type: Easing.BezierSpline
+                            easing.bezierCurve: [0.22, 1, 0.36, 1, 1, 1]
+                        }
+                    }
+
+                    Behavior on height {
+                        NumberAnimation {
+                            duration: 300
+                            easing.type: Easing.BezierSpline
+                            easing.bezierCurve: [0.22, 1, 0.36, 1, 1, 1]
+                        }
+                    }
+
+                    MouseArea {
+                        anchors.fill: parent
+                        onWheel: event => event.accepted = true
+                        onClicked: {}
+                    }
+
+                    Column {
+                        anchors.centerIn: parent
+                        spacing: 14
+                        width: parent.width - 60
+
+                        Text {
+                            width: parent.width
+                            horizontalAlignment: Text.AlignHCenter
+                            text: "Steam API Key Setup"
+                            color: Theme.text
+                            font.pixelSize: 18
+                            font.weight: Font.Medium
+                        }
+
+                        Rectangle {
+                            width: parent.width
+                            height: 38
+                            radius: 15
+                            color: Theme.background
+                            border.color: Theme.border
+                            border.width: 1
+
+                            TextField {
+                                id: apiKeyField
+                                anchors.fill: parent
+                                anchors.margins: 1
+                                background: Item {}
+                                color: Theme.text
+                                placeholderText: "Steam API key"
+                                placeholderTextColor: Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, 0.35)
+                                font.pixelSize: 13
+                                leftPadding: 12
+                                echoMode: TextInput.Password
+
+                                Keys.onReturnPressed: authConfirmButton.clicked()
+                                Keys.onEscapePressed: {
+                                    window.showWorkshopAuth = false
+                                    apiKeyField.text = ""
+                                    authErrorText.text = ""
+                                    listView.forceActiveFocus()
+                                }
+                            }
+                        }
+
+                        Text {
+                            id: authErrorText
+                            width: parent.width
+                            horizontalAlignment: Text.AlignHCenter
+                            text: steamWorkshop.errorString
+                            color: "#e06c75"
+                            font.pixelSize: 12
+                            wrapMode: Text.WordWrap
+                            visible: text.length > 0
+                        }
+
+                        Rectangle {
+                            id: authConfirmButton
+                            width: parent.width
+                            height: 38
+                            radius: 12
+                            color: confirmMouse.containsMouse
+                                ? Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, 0.15)
+                                : Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, 0.08)
+
+                            Behavior on color {
+                                ColorAnimation {
+                                    duration: 300
+                                    easing.type: Easing.BezierSpline
+                                    easing.bezierCurve: [0.22, 1, 0.36, 1, 1, 1]
+                                }
+                            }
+
+                            signal clicked()
+
+                            onClicked: {
+                                let key = apiKeyField.text.trim()
+
+                                if (key === "") {
+                                    authErrorText.text = "API key cannot be empty"
+                                    return
+                                }
+
+                                if (steamWorkshop.saveApiKey(key)) {
+                                    window.showWorkshopAuth = false
+                                    apiKeyField.text = ""
+                                    authErrorText.text = ""
+
+                                    window.workshopMode = true
+                                    steamWorkshop.activateWorkshop()
+                                    showStatus("Workshop mode")
+                                    listView.forceActiveFocus()
+                                } else {
+                                    console.log("steam workshop error:", steamWorkshop.errorString)
+                                    authErrorText.text = steamWorkshop.errorString !== ""
+                                        ? steamWorkshop.errorString
+                                        : "Failed to save API key"
+                                }
+                            }
+
+                            Text {
+                                anchors.centerIn: parent
+                                text: "Save API Key"
+                                color: Theme.text
+                                font.pixelSize: 13
+                                font.weight: Font.Medium
+                            }
+
+                            MouseArea {
+                                id: confirmMouse
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: authConfirmButton.clicked()
+                            }
+                        }
+                    }
+
+                    onVisibleChanged: {
+                        if (visible) {
+                            Qt.callLater(function() {
+                                if (apiKeyField)
+                                    apiKeyField.forceActiveFocus()
+                            })
+                        }
+                    }
+                }
+
                 Text {
                     anchors.centerIn: parent
-                    text: (window.wasInCommandMode ? "Command Mode" : "No wallpapers found")
+                    text: (window.workshopMode ? "" : window.wasInCommandMode ? "Command Mode" : "No wallpapers found")
                     visible: listView.count === 0 && !isInitialLoad
                     color: Theme.text
                     font.pixelSize: 24
