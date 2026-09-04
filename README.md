@@ -10,7 +10,7 @@ Demo in  reddit:
 https://www.reddit.com/r/unixporn/comments/1rz6nil/oc_made_a_command_based_quickshell_wallpaper/
 
 Dependencies:
-ffmpeg, linux-wallpaper-engine, quickshell, pywal, swww 
+ffmpeg, linux-wallpaper-engine, quickshell, pywal, swww, qt6 keychain
 and dependencies of everything listed here as expected
 
 Above dependecies are for plug and play behavior you can substitute pywal and sww dependecies
