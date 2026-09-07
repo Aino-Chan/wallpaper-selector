@@ -243,7 +243,7 @@ Scope {
 
             Timer {
                 id: killTimer
-                interval: 170
+                interval: 149
                 repeat: false
                 onTriggered: {
                     hardKillProcess.command = ["/bin/bash", "-c", "pkill -f 'quickshell -c wallpaper'"]
@@ -307,6 +307,7 @@ Scope {
             function doQuit() {
                 if (window.isQuitting) return
                 window.isQuitting = true
+                initialScanTimer.stop()
                 filterAnimation.stop()
                 saveDebounceTimer.stop()
                 saveSettings()
