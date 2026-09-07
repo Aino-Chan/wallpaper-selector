@@ -14,7 +14,18 @@ import Quickshell.Wayland
 import QtMultimedia
 
 Scope {
+
+    IpcHandler {
+        target: "wallpaper"
+
+        function close(): void {
+            for (const win of wallpaperWindows.instances)
+                win.doQuit()
+        }
+    }
+    
     Variants {
+        id: wallpaperWindows
         model: Quickshell.screens
 
         PanelWindow {
@@ -53,6 +64,7 @@ Scope {
             property bool keyboardNavigation: true
             property int targetIndexTracker: 0
             property bool isInitialLoad: true
+            property bool panelReady: false
             property string lastWallpaperPath: ""
             property var thumbQueue: []
             property var validThumbs: new Set()
@@ -117,6 +129,14 @@ Scope {
 
             Process {
                 id: pathCompleteProcess
+            }
+
+
+            Timer {
+                id: initialScanTimer
+                interval: 290
+                repeat: false
+                onTriggered: window.scanWallpapers()
             }
 
             Timer {
@@ -223,7 +243,7 @@ Scope {
 
             Timer {
                 id: killTimer
-                interval: 100
+                interval: 170
                 repeat: false
                 onTriggered: {
                     hardKillProcess.command = ["/bin/bash", "-c", "pkill -f 'quickshell -c wallpaper'"]
@@ -1682,7 +1702,8 @@ Scope {
                 initSettingsProcess.startDetached();
                 Qt.callLater(() => {
                     loadSettings(function () {
-                        scanWallpapers();
+                        window.panelReady = true
+                        initialScanTimer.start()
                     });
                 });
             }
@@ -1969,6 +1990,66 @@ Scope {
                 anchors.centerIn: parent
                 clip: true
 
+                opacity: 0
+                scale: 0.87
+                transformOrigin: Item.Center
+
+                states: [
+                State {
+                    name: "opened"
+                    when: window.panelReady && !window.isQuitting
+
+                    PropertyChanges {
+                        target: panel
+                        opacity: 1
+                        scale: 1
+                    }
+                },
+                State {
+                    name: "closed"
+                    when: !window.panelReady || window.isQuitting
+
+                    PropertyChanges {
+                        target: panel
+                        opacity: 0
+                        scale: 0.87
+                    }
+                }
+            ]
+
+            transitions: [
+                Transition {
+                    from: "closed"
+                    to: "opened"
+
+                    NumberAnimation {
+                        properties: "opacity,scale"
+                        duration: 410
+                        easing.type: Easing.BezierSpline
+                        easing.bezierCurve: [0.22, 1, 0.36, 1, 1, 1]
+                    }
+                },
+                Transition {
+                    from: "opened"
+                    to: "closed"
+
+                    ParallelAnimation {
+                        NumberAnimation {
+                            property: "scale"
+                            duration: 149
+                            easing.type: Easing.Linear
+                        }
+
+                        NumberAnimation {
+                            property: "opacity"
+                            duration: 146
+                            easing.type: Easing.BezierSpline
+                            easing.bezierCurve: [0.5, 0.5, 0.75, 1, 1, 1]
+                        }
+                    }
+                }
+            ]
+
                 FocusScope {
                     id: keyScope
                     anchors.fill: parent
@@ -2045,6 +2126,8 @@ Scope {
                         anchors.top: parent.top
                         anchors.topMargin: 10
                         anchors.horizontalCenter: parent.horizontalCenter
+                        leftPadding: 30
+                        rightPadding: 12
 
                         visible: true
                         opacity: (text.length > 0 || activeFocus) ? 1 : 0
@@ -2054,6 +2137,17 @@ Scope {
                         selectionColor: Theme.accent
                         selectedTextColor: Theme.background
                         z: 1
+
+                        Text {
+                            anchors.left: parent.left
+                            anchors.leftMargin: 8
+                            anchors.verticalCenter: parent.verticalCenter
+
+                            text: ""
+                            font.pixelSize: 16
+                            color: Theme.border
+                            opacity: 0.7
+                        }
 
                         Timer {
                             id: searchDebounceTimer
@@ -3624,11 +3718,49 @@ Scope {
                 }
 
                 Text {
+                    id: emptyStateText
                     anchors.centerIn: parent
-                    text: (window.workshopMode ? "" : window.wasInCommandMode ? "Command Mode" : "No wallpapers found")
+
+                    property string targetText: window.workshopMode
+                        ? ""
+                        : window.wasInCommandMode
+                            ? "  Command Mode"
+                            : "  No wallpapers found"
+
+                    text: ""
                     visible: listView.count === 0 && !isInitialLoad
                     color: Theme.text
                     font.pixelSize: 24
+
+                    Component.onCompleted: text = targetText
+
+                    onTargetTextChanged: textChangeAnimation.restart()
+
+                    SequentialAnimation {
+                        id: textChangeAnimation
+
+                        NumberAnimation {
+                            target: emptyStateText
+                            property: "opacity"
+                            to: 0
+                            duration: 500
+                            easing.type: Easing.BezierSpline
+                            easing.bezierCurve: [0.22, 1, 0.36, 1, 1, 1]
+                        }
+
+                        ScriptAction {
+                            script: emptyStateText.text = emptyStateText.targetText
+                        }
+
+                        NumberAnimation {
+                            target: emptyStateText
+                            property: "opacity"
+                            to: 1
+                            duration: 500
+                            easing.type: Easing.BezierSpline
+                            easing.bezierCurve: [0.22, 1, 0.36, 1, 1, 1]
+                        }
+                    }
                 }
             }
         }
